@@ -1,6 +1,7 @@
 // Работа без интернета: файлы приложения лежат в кэше телефона.
-// Открывается из кэша сразу, в фоне проверяется новая версия (появится при следующем запуске).
-const CACHE = 'pdd-zakupki-v1';
+// При выкладке GitHub Actions подставляет номер версии в имя кэша — телефон видит, что sw.js изменился,
+// скачивает новую версию целиком и включает её при следующем запуске.
+const CACHE = 'pdd-zakupki-dev';
 const FILES = [
   './',
   'index.html',
@@ -31,7 +32,12 @@ const FILES = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
+  // Новая версия скачивается целиком в новый кэш (мимо кэша браузера); старая работает, пока новая не готова.
+  event.waitUntil(
+    caches.open(CACHE)
+      .then((c) => c.addAll(FILES.map((f) => new Request(f, { cache: 'reload' }))))
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener('activate', (event) => {
@@ -42,19 +48,10 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Файлы приложения — только из кэша одной версии (не смешиваются старые и новые); чего нет в кэше — из сети.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET' || new URL(event.request.url).origin !== location.origin) return;
   event.respondWith(
-    caches.open(CACHE).then(async (cache) => {
-      const cached = await cache.match(event.request, { ignoreSearch: true });
-      // no-cache: сверяться с сервером, а не с 10-минутным кэшем GitHub Pages.
-      const network = fetch(event.request.url, { cache: 'no-cache' })
-        .then((res) => {
-          if (res.ok) cache.put(event.request, res.clone());
-          return res;
-        })
-        .catch(() => cached);
-      return cached || network;
-    }),
+    caches.open(CACHE).then(async (cache) => (await cache.match(event.request, { ignoreSearch: true })) || fetch(event.request)),
   );
 });

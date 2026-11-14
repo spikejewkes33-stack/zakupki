@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCents, parseRate, cnyToByn, itemMoney, averageKop, formatCents, formatRate } from '../site/src/money.js';
-import { buildOpis, exportRows, groupKey, isDoubtfulPair, pairId } from '../site/src/opis.js';
+import { buildOpis, exportRows, groupKey, isDoubtfulPair, pairId, privacyWarnings } from '../site/src/opis.js';
 import { startSession, finishSession, clientForTime, openSession, clientsInOrder } from '../site/src/order.js';
 import { validateItem, totals, duplicateWarnings } from '../site/src/model.js';
 
@@ -44,14 +44,15 @@ test('курс и округление: до копейки, 5 коп, 10 коп
   assert.equal(cnyToByn(1000, 500000, { stepKop: 1, mode: 'up' }), 500);
 });
 
-test('у каждого товара своя цена; сумма = цена за единицу × количество; юани не теряются при смене курса', () => {
+test('у каждого товара своя цена; округляется сумма строки; юани не теряются при смене курса', () => {
   const a = it('Шарф', 3, 1990);
   const m1 = itemMoney(a, P());
-  assert.deepEqual(m1, { qty: 3, unitFen: 1990, totalFen: 5970, unitKop: 896, totalKop: 2688 });
+  // 59,70 ¥ × 0,45 = 26,865 → 26,87; за штуку ≈ 8,96
+  assert.deepEqual(m1, { qty: 3, unitFen: 1990, totalFen: 5970, unitKop: 896, totalKop: 2687, zero: false });
   const m2 = itemMoney(a, P({ rateMicro: 500000 }));
   assert.equal(m2.unitFen, 1990);
   assert.equal(m2.totalFen, 5970);
-  assert.equal(m2.unitKop, 995);
+  assert.equal(m2.totalKop, 2985);
   assert.equal(itemMoney(it('Без цены', 2, null), P()).totalKop, null);
 });
 
@@ -121,7 +122,9 @@ test('подтверждённое объединение, отказ, прав�
   assert.equal(o.rows.length, 3);
   assert.equal(o.suggestions.length, 0);
 
-  o = buildOpis(items, P({ opis: { merges: [[kA, kB]], edits: { [kA]: { name: 'Шарф женский', qty: 4, unit: 'шт.' }, [groupKey('Сейф')]: { excluded: true } } } }));
+  const scarfIds = merged.itemIds;
+  const safeIds = buildOpis(items, P()).rows.find((x) => x.name === 'Сейф').itemIds;
+  o = buildOpis(items, P({ opis: { merges: [[kA, kB]], edits: { [kA]: { name: 'Шарф женский', qty: 4, unit: 'шт.', itemIds: scarfIds }, [groupKey('Сейф')]: { excluded: true, itemIds: safeIds } } } }));
   const r = o.rows.find((x) => x.name === 'Шарф женский');
   assert.equal(r.qty, 4);
   assert.equal(r.totalKop, 2700); // сумма реальная, меняется только количество
@@ -174,4 +177,49 @@ test('защита от дублей: тот же номер заказа или
   assert.equal(duplicateWarnings({ track: '777463198487290' }, all, 'b').length, 1);
   assert.equal(duplicateWarnings({ track: '777463198487290' }, all, 'a').length, 0); // сама себе не дубль
   assert.equal(duplicateWarnings({ track: '777463198487290' }, [{ ...all[0], deleted: true }], 'b').length, 0);
+});
+
+test('округление «до рубля» не обнуляет дешёвые товары в количестве и предупреждает о нуле', () => {
+  const rub = { stepKop: 100, mode: 'math' };
+  const m = itemMoney(it('Значок', 100, 100), P({ rateMicro: 451200, rounding: rub }));
+  assert.equal(m.totalKop, 4500); // 100 ¥ × 0,4512 = 45,12 → 45,00, а не 0
+  const one = itemMoney(it('Значок', 1, 100), P({ rateMicro: 451200, rounding: rub }));
+  assert.equal(one.totalKop, 0);
+  assert.equal(one.zero, true);
+  const o = buildOpis([it('Значок', 1, 100)], P({ rateMicro: 451200, rounding: rub }));
+  assert.equal(o.zero, 1);
+});
+
+test('правка количества и исключение не переносятся на новый состав строки', () => {
+  const a = { ...it('Шарф', 2, 1000), id: 'a' };
+  const b = { ...it('Шарф', 4, 1000), id: 'b' };
+  const k = groupKey('Шарф');
+  const edits = { [k]: { excluded: true, qty: 1, itemIds: ['a'] } };
+  // при том же составе правка действует
+  let o = buildOpis([a], P({ opis: { edits } }));
+  assert.equal(o.rows[0].excluded, true);
+  assert.equal(o.totalKop, 0);
+  // другой клиент добавил шарфы — строка не исчезает молча, правка не действует, строка помечена
+  o = buildOpis([a, b], P({ opis: { edits } }));
+  assert.equal(o.rows[0].excluded, false);
+  assert.equal(o.rows[0].qty, 6);
+  assert.equal(o.rows[0].stale, true);
+  assert.equal(o.totalKop, 2700);
+  // объединение со строкой, где количество правили, — количество берётся по товарам
+  const c = { ...it('Шарфик', 5, 1000), id: 'c' };
+  const kc = groupKey('Шарфик');
+  o = buildOpis([a, c], P({ opis: { merges: [[k, kc]], edits: { [k]: { qty: 2, itemIds: ['a'] } } } }));
+  assert.equal(o.rows.length, 1);
+  assert.equal(o.rows[0].qty, 7);
+});
+
+test('комплектация учитывается: «Носки» и «Носки» набором 5 пар — разные строки', () => {
+  const o = buildOpis([it('Носки', 1, 500), { ...it('Носки', 1, 1500), kit: '5 пар' }], P());
+  assert.deepEqual(o.rows.map((r) => r.name).sort(), ['Носки', 'Носки (5 пар)']);
+});
+
+test('опись предупреждает об имени клиента или номере в названии строки', () => {
+  const o = buildOpis([it('Шарф для Маши', 1, 1000), it('Сейф', 1, 1000), it('Кофта YT0719739925067', 1, 1000)], P());
+  const w = privacyWarnings(o.rows, ['Маша', 'Айтен']);
+  assert.deepEqual(w.map((x) => x.name).sort(), ['Кофта YT0719739925067', 'Шарф для Маши']);
 });

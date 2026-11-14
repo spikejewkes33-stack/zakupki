@@ -1,7 +1,7 @@
 // Опись закупки: объединение похожих, правка, исключение, PDF и Excel.
 import { html, useState, Header, Empty, Sheet, FileReady, go, toast } from '../ui.js';
 import * as S from '../store.js';
-import { buildOpis, exportRows } from '../opis.js';
+import { buildOpis, exportRows, privacyWarnings } from '../opis.js';
 import { fmtByn, formatCents } from '../money.js';
 import { pdfBlob, xlsxBlob, fileName } from '../export.js';
 
@@ -22,7 +22,7 @@ function RowSheet({ p, row, rows, ro, onClose }) {
   const save = async () => {
     const qty = Number(f.qty);
     if (!Number.isInteger(qty) || qty < 1) return toast('Количество — целое число от 1');
-    await S.opisEdit(p.id, row.keys, {
+    await S.opisEdit(p.id, row.keys, row.itemIds, {
       name: f.name.trim() && f.name.trim() !== row.autoName ? f.name.trim() : null,
       qty: qty !== row.countedQty ? qty : null,
       unit: f.unit.trim() && f.unit.trim() !== 'шт.' ? f.unit.trim() : null,
@@ -40,8 +40,8 @@ function RowSheet({ p, row, rows, ro, onClose }) {
       <p class="muted small">По товарам: ${row.countedQty} шт. на ${fmtByn(row.totalKop)}. Сумма берётся из реальных цен; при правке количества меняется цена за единицу.</p>
       <button class="btn primary block" onClick=${save}>Сохранить</button>
       <div class="btn-row">
-        <button class="btn" onClick=${async () => { await S.opisEdit(p.id, row.keys, { excluded: !row.excluded }); onClose(); }}>${row.excluded ? 'Вернуть в опись' : 'Исключить из описи'}</button>
-        ${row.edited && html`<button class="btn" onClick=${async () => { await S.opisEdit(p.id, row.keys, { name: null, qty: null, unit: null }); onClose(); }}>Сбросить правки</button>`}
+        <button class="btn" onClick=${async () => { await S.opisEdit(p.id, row.keys, row.itemIds, { excluded: !row.excluded }); onClose(); }}>${row.excluded ? 'Вернуть в опись' : 'Исключить из описи'}</button>
+        ${row.edited && html`<button class="btn" onClick=${async () => { await S.opisEdit(p.id, row.keys, row.itemIds, { name: null, qty: null, unit: null }); onClose(); }}>Сбросить правки</button>`}
         ${row.merged && html`<button class="btn" onClick=${async () => { await S.opisSplit(p.id, row.keys); onClose(); }}>Разъединить</button>`}
       </div>
       <label>Объединить с другой строкой
@@ -72,7 +72,14 @@ export function OpisScreen({ id }) {
   const showUnit = mode !== 'total';
   const showTotal = mode !== 'unit';
 
+  const privacy = privacyWarnings(o.rows, [...S.state.clients.values()].map((c) => c.name));
   const exportAs = async (kind) => {
+    const problems = [
+      o.noPrice > 0 && `${o.noPrice} шт. без цены попадут в файл с суммой 0,00.`,
+      o.zero > 0 && `${o.zero} шт. округлились до 0 BYN.`,
+      privacy.length > 0 && `В названиях ${privacy.length} строк похоже на имя клиента или номер.`,
+    ].filter(Boolean);
+    if (problems.length && !confirm(`${problems.join('\n')}\nВсё равно сделать файл?`)) return;
     setBusy(kind);
     try {
       const doc = await S.saveDoc({
@@ -107,12 +114,15 @@ export function OpisScreen({ id }) {
       </div>`)}
     </section>`}
     ${o.noPrice > 0 && html`<div class="card warn">${o.noPrice} шт. без цены — их стоимость не посчитана. Укажите цены в товарах.</div>`}
+    ${o.zero > 0 && html`<div class="card warn">${o.zero} шт. при таком округлении стоят 0 BYN. Поменяйте округление в настройках закупки.</div>`}
+    ${privacy.length > 0 && html`<div class="card warn"><b>В описи не должно быть имён клиентов и номеров.</b>${privacy.map((w) => html`<div>«${w.name}» — ${w.reason}. Нажмите на строку и исправьте название.</div>`)}</div>`}
+    ${o.rows.some((r) => r.stale) && html`<div class="card warn">В строки с отметкой ⚠ добавились или ушли товары: прежняя правка количества или исключение больше не действует. Проверьте их.</div>`}
 
     <section class="card opis">
       <div class="opis-head"><span>№</span><span>Наименование</span><span>Кол-во</span>${showUnit && html`<span>Цена</span>`}${showTotal && html`<span>Сумма</span>`}</div>
       ${visible.map((r) => html`<button class="opis-row" onClick=${() => setOpen(r.key)}>
         <span>${r.n}</span>
-        <span>${r.name}${r.merged ? html` <span class="chip s3" title="объединено">∪</span>` : ''}${r.edited ? html` <span class="muted">✎</span>` : ''}</span>
+        <span>${r.name}${r.merged ? html` <span class="chip s3" title="объединено">∪</span>` : ''}${r.edited ? html` <span class="muted">✎</span>` : ''}${r.stale ? html` <span class="warn-text" title="состав строки изменился">⚠</span>` : ''}</span>
         <span>${r.qty} ${r.unit}</span>
         ${showUnit && html`<span>${formatCents(r.avgKop)}</span>`}
         ${showTotal && html`<span>${formatCents(r.totalKop)}</span>`}

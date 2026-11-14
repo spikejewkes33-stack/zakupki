@@ -27,6 +27,7 @@ jobs:
           node-version: 24
       - run: npm ci
       - run: npm test
+      - run: sed -i "s/pdd-zakupki-dev/pdd-zakupki-${GITHUB_SHA::12}/" site/sw.js && grep -n "const CACHE" site/sw.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

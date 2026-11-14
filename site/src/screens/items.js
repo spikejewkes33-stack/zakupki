@@ -6,13 +6,25 @@ import { centsToInput, fmtCny, fmtByn, formatRate, itemMoney } from '../money.js
 
 // Сжать фото до 1000 px по длинной стороне (JPEG), чтобы сотни фото помещались в телефоне.
 async function shrinkPhoto(file) {
-  const bmp = await createImageBitmap(file);
-  const k = Math.min(1, 1000 / Math.max(bmp.width, bmp.height));
-  const c = document.createElement('canvas');
-  c.width = Math.round(bmp.width * k);
-  c.height = Math.round(bmp.height * k);
-  c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-  return new Promise((res) => c.toBlob(res, 'image/jpeg', 0.8));
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = () => rej(new Error('не открылась картинка'));
+      i.src = url;
+    });
+    const k = Math.min(1, 1000 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.naturalWidth * k);
+    c.height = Math.round(img.naturalHeight * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.8));
+    if (!blob) throw new Error('не удалось сжать');
+    return blob;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 function Photo({ id }) {
@@ -103,9 +115,13 @@ export function ItemForm({ id, query }) {
   const onPhoto = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const blob = await shrinkPhoto(file);
-    const photoId = await S.savePhoto(blob);
-    setF({ ...f, photoId });
+    try {
+      const blob = await shrinkPhoto(file);
+      const photoId = await S.savePhoto(blob);
+      setF({ ...f, photoId });
+    } catch (err) {
+      toast(`Фото не добавилось: ${err.message}`);
+    }
   };
 
   return html`<${Header} title=${existing ? 'Товар' : 'Новый товар'} back=${true} />
@@ -134,7 +150,8 @@ export function ItemForm({ id, query }) {
       <div class="money-box">
         <div>Итого: <b>${fmtCny(m.totalFen)}</b></div>
         <div>Курс закупки: 1 ¥ = ${formatRate(p.rateMicro)} BYN</div>
-        <div>За 1 шт: <b>${fmtByn(m.unitKop)}</b> · итого: <b>${fmtByn(m.totalKop)}</b></div>
+        <div>Итого: <b>${fmtByn(m.totalKop)}</b> · за 1 шт ≈ ${fmtByn(m.unitKop)}</div>
+        ${m.zero && html`<div class="warn-text">При этом округлении товар стоит 0 BYN.</div>`}
       </div>
       <label>Статус<select value=${f.status} onChange=${set('status')}>${STATUSES.map((s) => html`<option value=${s.id}>${s.id}. ${s.label}</option>`)}</select></label>
       <div class="grid2">

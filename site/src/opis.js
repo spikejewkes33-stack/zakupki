@@ -100,10 +100,19 @@ function unionFind(keys, merges) {
   return find;
 }
 
+// Название товара для описи: с комплектацией, если она указана («Носки (5 пар)»).
+export function itemLabel(it) {
+  const name = String(it.name || '').trim().replace(/\s+/g, ' ');
+  const kit = String(it.kit || '').trim();
+  return kit ? `${name} (${kit})` : name;
+}
+// Комплектация учитывается при объединении: «Носки» и «Носки» с комплектацией «5 пар» — разные строки.
+export const itemKey = (it) => groupKey(itemLabel(it)) || '(без названия)';
+
 function niceName(items) {
   const count = new Map();
   for (const it of items) {
-    const n = String(it.name || '').trim().replace(/\s+/g, ' ');
+    const n = itemLabel(it);
     count.set(n, (count.get(n) || 0) + (it.qty || 1));
   }
   const best = [...count.entries()].sort((x, y) => y[1] - x[1] || x[0].length - y[0].length)[0][0];
@@ -118,7 +127,7 @@ export function buildOpis(items, purchase) {
   const live = items.filter((it) => !it.deleted);
   const byKey = new Map();
   for (const it of live) {
-    const k = groupKey(it.name) || '(без названия)';
+    const k = itemKey(it);
     if (!byKey.has(k)) byKey.set(k, []);
     byKey.get(k).push(it);
   }
@@ -137,21 +146,28 @@ export function buildOpis(items, purchase) {
   for (const [root, g] of groups) {
     g.keys.sort();
     const edit = Object.assign({}, ...g.keys.map((k) => edits[k] || {}));
+    // Правка количества и исключение действуют только для того состава строки, при котором их сделали.
+    // Добавился товар, строку объединили или разъединили — они перестают действовать, строка помечается.
+    const ids = g.items.map((it) => it.id).sort();
+    const sameSet = Array.isArray(edit.itemIds) && edit.itemIds.length === ids.length && [...edit.itemIds].sort().every((x, i) => x === ids[i]);
+    const stale = !sameSet && !!(edit.qty || edit.excluded);
     let totalKop = 0;
     let qty = 0;
     let noPrice = 0;
+    let zero = 0;
     for (const it of g.items) {
       const m = itemMoney(it, purchase);
       qty += m.qty;
       if (m.totalKop == null) noPrice += m.qty;
       else totalKop += m.totalKop;
+      if (m.zero) zero += m.qty;
     }
-    const finalQty = edit.qty > 0 ? edit.qty : qty;
+    const finalQty = sameSet && edit.qty > 0 ? edit.qty : qty;
     rows.push({
       key: root,
       keys: g.keys,
       itemIds: g.items.map((it) => it.id),
-      sourceNames: [...new Set(g.items.map((it) => it.name))],
+      sourceNames: [...new Set(g.items.map(itemLabel))],
       autoName: niceName(g.items),
       name: edit.name?.trim() || niceName(g.items),
       qty: finalQty,
@@ -160,8 +176,10 @@ export function buildOpis(items, purchase) {
       totalKop,
       avgKop: averageKop(totalKop, finalQty),
       noPrice,
-      excluded: !!edit.excluded,
-      edited: !!(edit.name || edit.qty || edit.unit),
+      zero,
+      stale,
+      excluded: sameSet && !!edit.excluded,
+      edited: !!(edit.name || (sameSet && edit.qty) || edit.unit),
       merged: g.keys.length > 1,
     });
   }
@@ -173,6 +191,7 @@ export function buildOpis(items, purchase) {
   const totalKop = included.reduce((s, r) => s + r.totalKop, 0);
   const totalQty = included.reduce((s, r) => s + r.qty, 0);
   const noPrice = included.reduce((s, r) => s + r.noPrice, 0);
+  const zero = included.reduce((s, r) => s + r.zero, 0);
 
   // Предложения объединить (при сомнении — спрашиваем пользователя).
   const rejected = new Set(opis.rejected || []);
@@ -185,7 +204,7 @@ export function buildOpis(items, purchase) {
       if (hit && !rejected.has(pairId(A.key, B.key))) suggestions.push({ a: A, b: B, id: pairId(A.key, B.key) });
     }
   }
-  return { rows, totalKop, totalQty, noPrice, suggestions };
+  return { rows, totalKop, totalQty, noPrice, zero, suggestions };
 }
 
 // Строки для экспорта (PDF, Excel): только то, что разрешено в описи.
@@ -193,4 +212,22 @@ export function exportRows(opisResult) {
   return opisResult.rows
     .filter((r) => !r.excluded)
     .map((r) => ({ n: r.n, name: r.name, qty: r.qty, unit: r.unit, totalKop: r.totalKop, avgKop: r.avgKop }));
+}
+
+// В описи запрещены имена клиентов, треки и номера заказов (ТЗ п. 10). Названия товаров пишет человек,
+// поэтому проверяем: нет ли в названии строки имени клиента или длинного номера.
+export function privacyWarnings(rows, clientNames) {
+  const names = clientNames
+    .map((n) => String(n || '').toLowerCase().replace(/ё/g, 'е').split(/[^a-zа-я]+/).filter((w) => w.length >= 3))
+    .flat();
+  const out = [];
+  for (const r of rows) {
+    if (r.excluded) continue;
+    const words = String(r.name).toLowerCase().replace(/ё/g, 'е').split(/[^a-zа-я0-9]+/);
+    // Имя в любом падеже: «Маша», «Маши», «Машей» — общее начало без последней буквы имени.
+    const who = names.find((n) => words.some((w) => w === n || (n.length >= 4 && w.length >= n.length - 1 && w.length - n.length <= 2 && w.startsWith(n.slice(0, -1)))));
+    if (who) out.push({ key: r.key, name: r.name, reason: `похоже на имя клиента («${who}»)` });
+    else if (/\d{8,}|[A-Za-z]{2}\d{8,}/.test(r.name.replace(/[\s-]/g, ''))) out.push({ key: r.key, name: r.name, reason: 'похоже на трек или номер заказа' });
+  }
+  return out;
 }

@@ -34,7 +34,15 @@ function notify() {
   for (const fn of listeners) fn(version);
 }
 
-const uuid = () => crypto.randomUUID();
+// UUID: crypto.randomUUID есть только по https (и с iOS 15.4); запасной вариант — из случайных байтов.
+function uuid() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
 const nowIso = () => new Date().toISOString();
 
 export async function load() {
@@ -58,30 +66,47 @@ export async function load() {
   notify();
 }
 
-// Записать изменение одной сущности (и, по желанию, ещё несколько записей той же транзакцией).
-async function commit(store, before, patch, action, note) {
-  const at = nowIso();
-  const after = {
-    ...(before || { id: uuid(), createdAt: at, rev: 0 }),
-    ...patch,
-    updatedAt: at,
-    rev: (before?.rev || 0) + 1,
-    deviceId: state.deviceId,
-  };
-  const changes = diff(before, after, FIELDS[store]);
-  if (before && Object.keys(changes).length === 0) return before;
-  const event = { id: uuid(), at, deviceId: state.deviceId, entity: ENTITY[store], entityId: after.id, action, changes, note: note || '' };
-  await db.putMany([[store, after], ['events', event]]);
-  state[store].set(after.id, after);
-  state.events.push(event);
-  notify();
-  return after;
+// Все изменения идут по очереди: быстрые нажатия подряд не затирают друг друга.
+let chain = Promise.resolve();
+function serial(fn) {
+  const run = chain.then(fn);
+  chain = run.catch(() => {});
+  return run;
 }
 
-export async function saveSettings(patch) {
-  state.settings = { ...state.settings, ...patch, id: 'settings' };
-  await db.put('meta', state.settings);
-  notify();
+// Записать изменение одной сущности. makePatch(before) вызывается уже в очереди, со свежими данными;
+// вернул null — изменений нет.
+function commit(store, id, makePatch, action) {
+  return serial(async () => {
+    const before = id ? state[store].get(id) : null;
+    if (id && !before) throw new Error('Запись не найдена');
+    const patch = typeof makePatch === 'function' ? makePatch(before) : makePatch;
+    if (!patch) return before;
+    const at = nowIso();
+    const after = {
+      ...(before || { id: uuid(), createdAt: at, rev: 0 }),
+      ...patch,
+      updatedAt: at,
+      rev: (before?.rev || 0) + 1,
+      deviceId: state.deviceId,
+    };
+    const changes = diff(before, after, FIELDS[store]);
+    if (before && Object.keys(changes).length === 0) return before;
+    const event = { id: uuid(), at, deviceId: state.deviceId, entity: ENTITY[store], entityId: after.id, action, changes };
+    await db.putMany([[store, after], ['events', event]]);
+    state[store].set(after.id, after);
+    state.events.push(event);
+    notify();
+    return after;
+  });
+}
+
+export function saveSettings(patch) {
+  return serial(async () => {
+    state.settings = { ...state.settings, ...patch, id: 'settings' };
+    await db.put('meta', state.settings);
+    notify();
+  });
 }
 
 // ——— Закупки ———
@@ -93,80 +118,61 @@ export async function createPurchase({ name, startDate, rateMicro, rounding }) {
   if (!state.settings.activePurchaseId) await saveSettings({ activePurchaseId: p.id });
   return p;
 }
-export const updatePurchase = (id, patch, action = 'update') => commit('purchases', state.purchases.get(id), patch, action);
+export const updatePurchase = (id, patch, action = 'update') => commit('purchases', id, patch, action);
 
 export async function archivePurchase(id, archived) {
-  const p = state.purchases.get(id);
-  await commit('purchases', p, {
+  await commit('purchases', id, (p) => ({
     archived,
     endDate: archived ? p.endDate || todayLocal() : p.endDate,
     sessions: archived ? finishS(p, nowIso()) : p.sessions,
-  }, archived ? 'archive' : 'unarchive');
+  }), archived ? 'archive' : 'unarchive');
   if (archived && state.settings.activePurchaseId === id) {
     const next = [...state.purchases.values()].find((x) => !x.archived && !x.deleted);
     await saveSettings({ activePurchaseId: next?.id || null });
   }
 }
 
-export async function addClientToPurchase(pid, cid) {
-  const p = state.purchases.get(pid);
-  if (p.clientIds.includes(cid)) return p;
-  return commit('purchases', p, { clientIds: [...p.clientIds, cid] }, 'add-client');
-}
+const withClient = (p, cid) => (p.clientIds.includes(cid) ? p.clientIds : [...p.clientIds, cid]);
 
-export async function removeClientFromPurchase(pid, cid) {
-  const p = state.purchases.get(pid);
-  return commit('purchases', p, { clientIds: p.clientIds.filter((x) => x !== cid) }, 'remove-client');
-}
+export const addClientToPurchase = (pid, cid) =>
+  commit('purchases', pid, (p) => (p.clientIds.includes(cid) ? null : { clientIds: [...p.clientIds, cid] }), 'add-client');
+
+// Убрать клиента из закупки можно, только если у него там нет товаров.
+export const removeClientFromPurchase = (pid, cid) =>
+  commit('purchases', pid, (p) => {
+    if ([...state.items.values()].some((x) => x.purchaseId === pid && x.clientId === cid && !x.deleted)) throw new Error('У клиента есть товары в закупке');
+    return { clientIds: p.clientIds.filter((x) => x !== cid) };
+  }, 'remove-client');
 
 // Порядок оформления: «Оформляю клиента» и «Завершить заказы клиента».
-export async function startOrdering(pid, cid) {
-  const p = await addClientToPurchase(pid, cid);
-  return commit('purchases', p, { sessions: startS(p, cid, nowIso(), uuid()) }, 'start-client');
-}
-export async function finishOrdering(pid) {
-  const p = state.purchases.get(pid);
-  return commit('purchases', p, { sessions: finishS(p, nowIso()) }, 'finish-client');
-}
+export const startOrdering = (pid, cid) =>
+  commit('purchases', pid, (p) => ({ clientIds: withClient(p, cid), sessions: startS(p, cid, nowIso(), uuid()) }), 'start-client');
+export const finishOrdering = (pid) => commit('purchases', pid, (p) => ({ sessions: finishS(p, nowIso()) }), 'finish-client');
 
 // ——— Опись: решения пользователя ———
-function opisOf(p) {
-  return { merges: [], rejected: [], edits: {}, ...(p.opis || {}) };
-}
-export async function opisMerge(pid, keyA, keyB) {
-  const p = state.purchases.get(pid);
-  const o = opisOf(p);
-  return commit('purchases', p, { opis: { ...o, merges: [...o.merges, [keyA, keyB]] } }, 'opis-merge');
-}
-export async function opisReject(pid, keyA, keyB) {
-  const p = state.purchases.get(pid);
-  const o = opisOf(p);
-  return commit('purchases', p, { opis: { ...o, rejected: [...o.rejected, pairId(keyA, keyB)] } }, 'opis-reject');
-}
-export async function opisSplit(pid, keys) {
-  const p = state.purchases.get(pid);
-  const o = opisOf(p);
+const opisOf = (p) => ({ merges: [], rejected: [], edits: {}, ...(p.opis || {}) });
+const opisChange = (pid, fn, action) => commit('purchases', pid, (p) => ({ opis: fn(opisOf(p)) }), action);
+
+export const opisMerge = (pid, keyA, keyB) => opisChange(pid, (o) => ({ ...o, merges: [...o.merges, [keyA, keyB]] }), 'opis-merge');
+export const opisReject = (pid, keyA, keyB) => opisChange(pid, (o) => ({ ...o, rejected: [...o.rejected, pairId(keyA, keyB)] }), 'opis-reject');
+export const opisSplit = (pid, keys) => opisChange(pid, (o) => {
   const set = new Set(keys);
-  return commit('purchases', p, { opis: { ...o, merges: o.merges.filter(([a, b]) => !set.has(a) && !set.has(b)) } }, 'opis-split');
-}
-export async function opisEdit(pid, keys, patch) {
-  const p = state.purchases.get(pid);
-  const o = opisOf(p);
+  return { ...o, merges: o.merges.filter(([a, b]) => !set.has(a) && !set.has(b)) };
+}, 'opis-split');
+// itemIds — состав строки в момент правки: правка количества и исключение действуют только для него.
+export const opisEdit = (pid, keys, itemIds, patch) => opisChange(pid, (o) => {
   const edits = { ...o.edits };
-  const merged = Object.assign({}, ...keys.map((k) => edits[k] || {}), patch);
+  const merged = Object.assign({}, ...keys.map((k) => edits[k] || {}), patch, { itemIds: [...itemIds] });
   for (const k of keys) delete edits[k];
   edits[keys[0]] = merged;
-  return commit('purchases', p, { opis: { ...o, edits } }, 'opis-edit');
-}
-export async function opisReset(pid) {
-  const p = state.purchases.get(pid);
-  return commit('purchases', p, { opis: { merges: [], rejected: [], edits: {} } }, 'opis-reset');
-}
+  return { ...o, edits };
+}, 'opis-edit');
+export const opisReset = (pid) => opisChange(pid, () => ({ merges: [], rejected: [], edits: {} }), 'opis-reset');
 
 // ——— Клиенты ———
 export const createClient = ({ name, contact = '', note = '' }) =>
   commit('clients', null, { name: name.trim(), contact, note, deleted: false }, 'create');
-export const updateClient = (id, patch) => commit('clients', state.clients.get(id), patch);
+export const updateClient = (id, patch) => commit('clients', id, patch);
 
 export function findClientByName(name) {
   const n = name.trim().toLowerCase();
@@ -174,23 +180,33 @@ export function findClientByName(name) {
 }
 
 // ——— Товары ———
+// Клиент товара всегда есть в списке клиентов закупки (и при создании, и при переносе).
+async function ensureClientInPurchase(pid, cid) {
+  const p = state.purchases.get(pid);
+  if (p && cid && !p.clientIds.includes(cid)) await addClientToPurchase(pid, cid);
+}
+
 export async function saveItem(item) {
   const before = item.id ? state.items.get(item.id) : null;
-  const patch = { ...item };
-  delete patch.id;
-  if (!before) {
-    const same = [...state.items.values()].filter((x) => x.purchaseId === item.purchaseId);
-    patch.seq = same.reduce((m, x) => Math.max(m, x.seq || 0), 0) + 1;
-    patch.deleted = false;
-    const p = state.purchases.get(item.purchaseId);
-    if (p && !p.clientIds.includes(item.clientId)) await addClientToPurchase(p.id, item.clientId);
-  }
-  const action = before && before.clientId !== item.clientId ? 'move' : before ? 'update' : 'create';
-  return commit('items', before, patch, action);
+  await ensureClientInPurchase(item.purchaseId, item.clientId);
+  const action = !before ? 'create' : before.clientId !== item.clientId ? 'move' : 'update';
+  return commit('items', item.id || null, (cur) => {
+    const patch = { ...item };
+    delete patch.id;
+    if (!cur) {
+      const same = [...state.items.values()].filter((x) => x.purchaseId === item.purchaseId);
+      patch.seq = same.reduce((m, x) => Math.max(m, x.seq || 0), 0) + 1;
+      patch.deleted = false;
+    }
+    return patch;
+  }, action);
 }
-export const deleteItem = (id) => commit('items', state.items.get(id), { deleted: true }, 'delete');
-export const restoreItem = (id) => commit('items', state.items.get(id), { deleted: false }, 'restore');
-export const moveItem = (id, clientId) => commit('items', state.items.get(id), { clientId }, 'move');
+export const deleteItem = (id) => commit('items', id, { deleted: true }, 'delete');
+export const restoreItem = (id) => commit('items', id, { deleted: false }, 'restore');
+export async function moveItem(id, clientId) {
+  await ensureClientInPurchase(state.items.get(id).purchaseId, clientId);
+  return commit('items', id, { clientId }, 'move');
+}
 
 // Фото: сжатая картинка хранится отдельно, в карточке — только её id.
 export async function savePhoto(blob) {
@@ -260,7 +276,20 @@ export async function restoreBackup(json) {
   const err = checkBackup(json);
   if (err) throw new Error(err);
   const photos = await Promise.all((json.data.photos || []).map(async (p) => ({ id: p.id, createdAt: p.createdAt, blob: await dataUrlToBlob(p.dataUrl) })));
-  const meta = [{ id: 'device', value: state.deviceId }, { ...state.settings, lastBackupAt: json.exportedAt }];
-  await db.replaceAll({ ...json.data, photos, meta });
+  // Страховка: текущие данные кладём рядом, их можно вернуть кнопкой «Вернуть данные до восстановления».
+  const current = await makeBackup();
+  const meta = [
+    { id: 'device', value: state.deviceId },
+    { ...state.settings, lastBackupAt: json.exportedAt },
+    { id: 'beforeRestore', at: nowIso(), json: JSON.stringify(current), counts: { purchases: current.data.purchases.length, items: current.data.items.length } },
+  ];
+  await serial(() => db.replaceAll({ ...json.data, photos, meta }));
   await load();
+}
+
+export const getBeforeRestore = () => db.get('meta', 'beforeRestore');
+export async function undoRestore() {
+  const saved = await getBeforeRestore();
+  if (!saved) throw new Error('Нет сохранённых данных');
+  await restoreBackup(JSON.parse(saved.json));
 }

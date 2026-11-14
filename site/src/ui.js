@@ -37,7 +37,7 @@ export function StatusChip({ status }) {
 }
 
 // Строка товара в списке.
-export function ItemRow({ item, showClient }) {
+export function ItemRow({ item, showClient, showPurchase }) {
   const p = S.purchaseById(item.purchaseId);
   const m = itemMoney(item, p);
   const variant = [item.color, item.size, item.kit].filter(Boolean).join(' · ');
@@ -45,7 +45,7 @@ export function ItemRow({ item, showClient }) {
     <div class="row-main">
       <div class="row-title">${item.name}${item.photoId ? html` <span class="muted" title="есть фото">📷</span>` : ''}</div>
       ${variant && html`<div class="row-sub">${variant}</div>`}
-      ${showClient && html`<div class="row-sub">${S.clientName(item.clientId)}</div>`}
+      ${showClient && html`<div class="row-sub">${S.clientName(item.clientId)}${showPurchase ? ` · ${p?.name || ''}` : ''}</div>`}
       <div class="row-sub">
         ${m.qty} × ${m.unitFen == null ? html`<span class="warn-text">цена не указана</span>` : fmtCny(m.unitFen)}
         ${item.track ? html` · <span class="mono">${item.track}</span>` : ''}
@@ -73,7 +73,7 @@ export function ClientPicker({ title, onPick, onClose, excludeIds = [] }) {
   };
   return html`<${Sheet} title=${title || 'Клиент'} onClose=${onClose}>
     <input ref=${ref} class="search" placeholder="Имя клиента" value=${q} onInput=${(e) => setQ(e.target.value)}
-      onKeyDown=${(e) => e.key === 'Enter' && q.trim() && (list.length === 1 ? onPick(list[0]) : !exact && create())} />
+      onKeyDown=${(e) => e.key === 'Enter' && q.trim() && (exact ? onPick(exact) : create())} />
     ${q.trim() && !exact && html`<button class="btn primary block" onClick=${create}>+ Новый клиент «${q.trim()}»</button>`}
     <div class="list">
       ${list.map((c) => html`<button class="row as-btn" onClick=${() => onPick(c)}><div class="row-title">${c.name}</div></button>`)}

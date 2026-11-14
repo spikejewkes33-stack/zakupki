@@ -80,15 +80,17 @@ export function cnyToByn(fen, rateMicro, rounding = DEFAULT_ROUNDING) {
   return Number(units * step);
 }
 
-// Расчёт по одному товару. Цена за единицу в BYN округляется по правилам закупки,
-// сумма = цена × количество (чтобы клиент видел честное умножение).
+// Расчёт по одному товару. Округляется СУММА строки (юани × количество × курс) по правилам закупки,
+// цена за единицу в BYN = сумма / количество до копейки. Так 100 шт. по 1 ¥ при округлении «до рубля»
+// дают 45 BYN, а не 0 (если бы округлялась цена за штуку).
 export function itemMoney(item, purchase) {
   const qty = item.qty > 0 ? item.qty : 1;
   const unitFen = item.unitFen ?? null;
   const totalFen = unitFen == null ? null : unitFen * qty;
-  const unitKop = cnyToByn(unitFen, purchase?.rateMicro ?? null, purchase?.rounding);
-  const totalKop = unitKop == null ? null : unitKop * qty;
-  return { qty, unitFen, totalFen, unitKop, totalKop };
+  const totalKop = cnyToByn(totalFen, purchase?.rateMicro ?? null, purchase?.rounding);
+  const unitKop = averageKop(totalKop, qty);
+  const zero = totalKop === 0 && totalFen > 0; // округлилось до нуля — надо предупредить
+  return { qty, unitFen, totalFen, unitKop, totalKop, zero };
 }
 
 // Средняя цена = сумма / количество, до копейки по правилам математики.

@@ -47,9 +47,11 @@ export function SettingsScreen() {
   const [persist, setPersist] = useState(null);
   const [file, setFile] = useState(null);
   const [n, setN] = useState(50);
+  const [before, setBefore] = useState(null);
   useEffect(() => {
     navigator.storage?.persisted?.().then(setPersist).catch(() => setPersist(null));
-  }, []);
+    S.getBeforeRestore().then((b) => setBefore(b || null)).catch(() => {});
+  }, [S.getVersion()]);
   const last = S.state.settings.lastBackupAt;
   const backup = async () => {
     const json = await S.makeBackup();
@@ -66,7 +68,7 @@ export function SettingsScreen() {
       const err = S.checkBackup(json);
       if (err) return toast(err);
       const c = json.data;
-      if (!confirm(`Заменить ВСЕ данные в этом телефоне копией от ${timeRu(json.exportedAt)}?\nВ копии: закупок ${c.purchases.length}, клиентов ${c.clients.length}, товаров ${c.items.length}.\nТекущие данные будут заменены — сначала сохраните копию, если не уверены.`)) return undefined;
+      if (!confirm(`Заменить ВСЕ данные в этом телефоне копией от ${timeRu(json.exportedAt)}?\nВ копии: закупок ${c.purchases.length}, клиентов ${c.clients.length}, товаров ${c.items.length}.\nТекущие данные приложение сохранит рядом — их можно будет вернуть кнопкой ниже.`)) return undefined;
       await S.restoreBackup(json);
       toast('Данные восстановлены');
     } catch (err) {
@@ -83,6 +85,10 @@ export function SettingsScreen() {
       <p class="small">Последняя копия: <b>${last ? timeRu(last) : 'ещё не делалась'}</b></p>
       <button class="btn primary block" onClick=${backup}>Сохранить копию</button>
       <label class="btn block file-btn">Восстановить из копии…<input type="file" accept="application/json,.json" onChange=${restore} /></label>
+      ${before && html`<button class="btn block" onClick=${async () => {
+        if (!confirm(`Вернуть данные, которые были до восстановления ${timeRu(before.at)}? (закупок ${before.counts.purchases}, товаров ${before.counts.items})`)) return;
+        try { await S.undoRestore(); toast('Данные возвращены'); } catch (err) { toast(err.message); }
+      }}>Вернуть данные до восстановления (${timeRu(before.at)})</button>`}
     </section>
     <section class="card">
       <h2>Хранилище</h2>

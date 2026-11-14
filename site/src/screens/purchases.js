@@ -1,5 +1,17 @@
 // Главная, список закупок, форма закупки, экран закупки.
 import { html, useState, Header, Stat, Empty, Search, ItemRow, ClientPicker, go, dateRu, timeRu, toast } from '../ui.js';
+
+function GlobalSearch() {
+  const [q, setQ] = useState('');
+  const found = q.trim().length >= 2
+    ? [...S.state.items.values()].filter((it) => !it.deleted && matchItem(it, q, S.clientName(it.clientId))).slice(0, 50)
+    : [];
+  return html`<div class="global-search">
+    <${Search} value=${q} onInput=${setQ} placeholder="Найти во всех закупках: трек, номер заказа, товар, клиент" />
+    ${q.trim().length >= 2 && html`<div class="list">${found.map((it) => html`<${ItemRow} item=${it} showClient=${true} showPurchase=${true} />`)}</div>
+      ${!found.length && html`<${Empty}>Ничего не найдено</${Empty}>`}`}
+  </div>`;
+}
 import * as S from '../store.js';
 import { totals, matchItem, STATUSES, sortItems, todayLocal as today } from '../model.js';
 import { fmtByn, fmtCny, formatRate, parseRate, ROUNDING_STEPS, ROUNDING_MODES, DEFAULT_ROUNDING } from '../money.js';
@@ -20,6 +32,7 @@ function PurchaseStats({ p }) {
     <${Stat} label="сумма, ¥" value=${fmtCny(t.fen).replace(' ¥', '')} />
     <${Stat} label="сумма, BYN" value=${fmtByn(t.kop).replace(' BYN', '')} tone="accent" />
   </div>
+  <p class="muted small">Всего штук: ${t.qty}</p>
   ${t.noPrice > 0 && html`<p class="warn-text small">Без цены: ${t.noPrice} — они не вошли в суммы.</p>`}`;
 }
 
@@ -68,6 +81,7 @@ export function Home() {
   return html`<${Header} title="Закупки" right=${html`<a class="icon-btn" href="#/settings" aria-label="Данные и копии">⚙︎</a>`} />
   <main>
     <${BackupReminder} />
+    <${GlobalSearch} />
     ${!p
       ? html`<section class="card">
           <h2>Нет активной закупки</h2>
@@ -168,6 +182,7 @@ export function PurchaseForm({ id }) {
       <label>Округление цены в BYN
         <select value=${f.stepKop} onChange=${set('stepKop')}>${ROUNDING_STEPS.map((r) => html`<option value=${r.kop}>${r.label}</option>`)}</select>
       </label>
+      ${Number(f.stepKop) >= 10 && html`<p class="hint">Округляется сумма строки товара (цена × количество). Очень дешёвые товары могут округлиться до 0 — приложение это покажет.</p>`}
       <label>Как округлять
         <select value=${f.mode} onChange=${set('mode')}>${ROUNDING_MODES.map((r) => html`<option value=${r.id}>${r.label}</option>`)}</select>
       </label>
@@ -281,6 +296,11 @@ export function PurchaseClient({ pid, cid }) {
           ? html`<button class="btn" onClick=${async () => { await S.finishOrdering(pid); toast('Граница поставлена'); go(`/p/${pid}`); }}>Завершить заказы клиента</button>`
           : html`<button class="btn" onClick=${async () => { await S.startOrdering(pid, cid); toast('Оформляю этого клиента'); }}>Оформлять этого клиента</button>`)}
         <a class="btn" href=${`#/client/${cid}`}>Карточка клиента</a>
+        ${!p.archived && all.length === 0 && open?.clientId !== cid && html`<button class="btn danger" onClick=${async () => {
+          await S.removeClientFromPurchase(pid, cid);
+          toast('Клиент убран из закупки');
+          go(`/p/${pid}`);
+        }}>Убрать из закупки</button>`}
       </div>
     </section>
     <div class="filters">
