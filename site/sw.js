@@ -1,0 +1,60 @@
+// Работа без интернета: файлы приложения лежат в кэше телефона.
+// Открывается из кэша сразу, в фоне проверяется новая версия (появится при следующем запуске).
+const CACHE = 'pdd-zakupki-v1';
+const FILES = [
+  './',
+  'index.html',
+  'styles.css',
+  'manifest.webmanifest',
+  'icons/icon-180.png',
+  'icons/icon-192.png',
+  'icons/icon-512.png',
+  'vendor/preact-htm.js',
+  'vendor/idb.js',
+  'vendor/pdfmake.min.js',
+  'vendor/vfs_fonts.js',
+  'vendor/xlsx.mini.min.js',
+  'src/app.js',
+  'src/ui.js',
+  'src/db.js',
+  'src/store.js',
+  'src/money.js',
+  'src/model.js',
+  'src/order.js',
+  'src/opis.js',
+  'src/export.js',
+  'src/screens/purchases.js',
+  'src/screens/items.js',
+  'src/screens/clients.js',
+  'src/screens/opis.js',
+  'src/screens/other.js',
+];
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim()),
+  );
+});
+
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET' || new URL(event.request.url).origin !== location.origin) return;
+  event.respondWith(
+    caches.open(CACHE).then(async (cache) => {
+      const cached = await cache.match(event.request, { ignoreSearch: true });
+      // no-cache: сверяться с сервером, а не с 10-минутным кэшем GitHub Pages.
+      const network = fetch(event.request.url, { cache: 'no-cache' })
+        .then((res) => {
+          if (res.ok) cache.put(event.request, res.clone());
+          return res;
+        })
+        .catch(() => cached);
+      return cached || network;
+    }),
+  );
+});
