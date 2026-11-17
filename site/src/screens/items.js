@@ -1,7 +1,7 @@
 // Карточка товара: создание, правка, перенос другому клиенту, фото, история изменений.
 import { html, useState, useEffect, Header, Empty, ClientPicker, go, dateRu, timeRu, toast } from '../ui.js';
 import * as S from '../store.js';
-import { emptyItem, validateItem, STATUSES, statusLabel, FIELD_LABELS } from '../model.js';
+import { emptyItem, validateItem, parcelNote, STATUSES, statusLabel, FIELD_LABELS } from '../model.js';
 import { centsToInput, fmtCny, fmtByn, formatRate, itemMoney } from '../money.js';
 
 // Сжать фото до 1000 px по длинной стороне (JPEG), чтобы сотни фото помещались в телефоне.
@@ -168,6 +168,7 @@ export function ItemForm({ id, query }) {
         <label>Трек-номер<input value=${f.track} onInput=${set('track')} placeholder="появится после отправки" autocomplete="off" /></label>
         <label>Транспортная компания<input value=${f.carrier} onInput=${set('carrier')} /></label>
       </div>
+      ${f.track && parcelNote(f.track.replace(/\s+/g, '').toUpperCase(), [...S.state.items.values()], existing?.id) && html`<div class="card info small">📦 ${parcelNote(f.track.replace(/\s+/g, '').toUpperCase(), [...S.state.items.values()], existing?.id)}</div>`}
       <label>Ссылка на Pinduoduo<input type="url" value=${f.url} onInput=${set('url')} placeholder="https://…" /></label>
       ${f.url && /^https?:\/\//.test(f.url) && html`<a class="small" href=${f.url} target="_blank" rel="noopener">Открыть ссылку</a>`}
       <div class="field"><span>Фото</span>

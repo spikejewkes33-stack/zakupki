@@ -222,7 +222,7 @@ export function buildPlan(blocks, ctx) {
   const plan = { newItems: [], updates: [], tracks: [], pending: [], unknown: [], skipped: 0 };
   const live = ctx.items.filter((x) => !x.deleted);
   const byOrder = (no) => live.find((x) => no && norm(x.pddOrderNo) === norm(no));
-  const byTrack = (tr) => live.find((x) => tr && norm(x.track) === norm(tr));
+  const byTrack = (tr) => live.filter((x) => tr && norm(x.track) === norm(tr));
   const open = [...ctx.purchases.values()].filter((p) => !p.archived && !p.deleted);
   const seenBlocks = new Set();
 
@@ -293,7 +293,18 @@ export function buildPlan(blocks, ctx) {
       Object.assign(n, { track: t.track, carrier: t.carrier, status: Math.max(n.status, t.status), extraBlocks: [...(n.extraBlocks || []), t.blockId] });
       return { newBlockId: n.blockId };
     }
-    const ex = byOrder(t.orderNo) || (!t.orderNo && byTrack(t.track));
+    // Без номера заказа (страница «поделиться») — по треку: все товары этой посылки.
+    if (!t.orderNo) {
+      const all = byTrack(t.track);
+      for (const ex of all) {
+        const patch = {};
+        if (!ex.carrier && t.carrier) patch.carrier = t.carrier;
+        if ((ex.status || 1) < t.status) patch.status = t.status;
+        plan.tracks.push({ ...t, itemId: ex.id, patch, replaces: '' });
+      }
+      return all.length ? { trackBlockId: t.blockId } : null;
+    }
+    const ex = byOrder(t.orderNo);
     if (ex) {
       const patch = {};
       const replaces = ex.track && norm(ex.track) !== norm(t.track) ? ex.track : '';

@@ -84,22 +84,30 @@ export function validateItem(form, allItems, selfId) {
   if (item.track && item.status < TRACK_STATUS) item.status = TRACK_STATUS;
 
   warnings.push(...duplicateWarnings(item, allItems, selfId));
-  return { item, errors, warnings };
+  return { item, errors, warnings, info: parcelNote(item.track, allItems, selfId) };
 }
 
-// Защита от дублей: один заказ Pinduoduo и один трек — у одной карточки.
+// Защита от дублей: один заказ Pinduoduo — одна карточка (номер заказа — главный ключ).
+// Трек дублем не считается: продавец может отправить несколько товаров одной посылкой (подтвердил пользователь 17.11).
 export function duplicateWarnings(item, allItems, selfId) {
   const out = [];
-  const others = allItems.filter((x) => x.id !== selfId && !x.deleted);
   if (item.pddOrderNo) {
-    const d = others.find((x) => norm(x.pddOrderNo) === norm(item.pddOrderNo));
+    const d = allItems.find((x) => x.id !== selfId && !x.deleted && norm(x.pddOrderNo) === norm(item.pddOrderNo));
     if (d) out.push(`Номер заказа ${item.pddOrderNo} уже есть у товара «${itemTitle(d)}». Один заказ — одна карточка.`);
   }
-  if (item.track) {
-    const d = others.find((x) => norm(x.track) === norm(item.track));
-    if (d) out.push(`Трек ${item.track} уже есть у товара «${itemTitle(d)}». Один товар — один трек.`);
-  }
   return out;
+}
+
+// Другие товары с тем же треком: они едут в одной посылке. Это не ошибка, а подсказка.
+export function sameParcel(track, allItems, selfId) {
+  if (!track) return [];
+  return allItems.filter((x) => x.id !== selfId && !x.deleted && norm(x.track) === norm(track));
+}
+export function parcelNote(track, allItems, selfId) {
+  const others = sameParcel(track, allItems, selfId);
+  if (!others.length) return '';
+  const names = others.slice(0, 3).map(itemTitle).join(', ');
+  return `В одной посылке ${others.length + 1} товара(ов): этот и ${names}${others.length > 3 ? '…' : ''}.`;
 }
 
 // Итоги по набору товаров (закупка или клиент в закупке). purchaseById — для курса каждого товара.

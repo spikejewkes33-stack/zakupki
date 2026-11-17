@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parseCents, parseRate, cnyToByn, itemMoney, averageKop, formatCents, formatRate } from '../site/src/money.js';
 import { buildOpis, exportRows, groupKey, isDoubtfulPair, pairId, privacyWarnings } from '../site/src/opis.js';
 import { startSession, finishSession, clientForTime, openSession, clientsInOrder } from '../site/src/order.js';
-import { validateItem, totals, duplicateWarnings } from '../site/src/model.js';
+import { validateItem, totals, duplicateWarnings, sameParcel } from '../site/src/model.js';
 
 const P = (o = {}) => ({ id: 'p1', rateMicro: 450000, rounding: { stepKop: 1, mode: 'math' }, ...o });
 const it = (name, qty, unitFen, extra = {}) => ({ id: `${name}-${qty}-${unitFen}-${Math.random()}`, purchaseId: 'p1', name, qty, unitFen, status: 1, ...extra });
@@ -171,12 +171,17 @@ test('карточка: обязательны только название и 
   assert.ok(v4.errors.unitFen);
 });
 
-test('защита от дублей: тот же номер заказа или трек у другой карточки', () => {
+test('защита от дублей: номер заказа — дубль; общий трек — не дубль, а одна посылка', () => {
   const all = [{ id: 'a', name: 'Шарф', pddOrderNo: '261113-143539596913933', track: '777463198487290' }];
   assert.equal(duplicateWarnings({ pddOrderNo: '261113-143539596913933' }, all, 'b').length, 1);
-  assert.equal(duplicateWarnings({ track: '777463198487290' }, all, 'b').length, 1);
-  assert.equal(duplicateWarnings({ track: '777463198487290' }, all, 'a').length, 0); // сама себе не дубль
-  assert.equal(duplicateWarnings({ track: '777463198487290' }, [{ ...all[0], deleted: true }], 'b').length, 0);
+  assert.equal(duplicateWarnings({ pddOrderNo: '261113-143539596913933' }, all, 'a').length, 0); // сама себе не дубль
+  assert.equal(duplicateWarnings({ pddOrderNo: '261113-143539596913933' }, [{ ...all[0], deleted: true }], 'b').length, 0);
+  // два товара в одной посылке: сохранение не требует подтверждения, есть подсказка
+  assert.equal(duplicateWarnings({ track: '777463198487290' }, all, 'b').length, 0);
+  const v = validateItem({ name: 'Шапка', clientId: 'c1', track: '777463198487290' }, all, 'b');
+  assert.deepEqual(v.warnings, []);
+  assert.ok(v.info.includes('В одной посылке 2'));
+  assert.equal(sameParcel('777463198487290', all, 'b').length, 1);
 });
 
 test('округление «до рубля» не обнуляет дешёвые товары в количестве и предупреждает о нуле', () => {

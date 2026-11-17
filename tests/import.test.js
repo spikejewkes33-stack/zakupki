@@ -245,3 +245,18 @@ test('второй трек того же заказа: прежний не те
   assert.equal(plan.tracks[0].replaces, 'YT0000000000001');
   assert.ok(plan.tracks[0].patch.note.includes('Прежний трек: YT0000000000001'));
 });
+
+test('два товара одной посылкой: общий трек не дубль, страница без номера заказа обновляет оба', () => {
+  const items = [
+    { id: 'i1', purchaseId: 'p1', clientId: 'max', name: 'Шапка', pddOrderNo: '261113-200000000000002', track: '70000000000002', status: 4, qty: 1 },
+    { id: 'i2', purchaseId: 'p1', clientId: 'ayt', name: 'Шарф', pddOrderNo: '261113-200000000000003', track: '70000000000002', status: 4, qty: 1 },
+  ];
+  const plan = buildPlan(splitBlocks(block('2026-11-17T11:00:00+03:00', fx('logistika-share-stranica'))), ctx({ items }));
+  assert.deepEqual(plan.tracks.map((t) => t.itemId).sort(), ['i1', 'i2']);
+  assert.ok(plan.tracks.every((t) => t.patch.status === 5));
+  // логистика с номером заказа второго товара — трек тот же, ничего не заменяется
+  const p2 = buildPlan(splitBlocks(block('2026-11-17T11:05:00+03:00', ['中通快递：70000000000002', '订单编号：261113-200000000000003', '运输中'].join('\n'))), ctx({ items }));
+  assert.equal(p2.tracks.length, 1);
+  assert.equal(p2.tracks[0].itemId, 'i2');
+  assert.equal(p2.tracks[0].replaces, '');
+});
