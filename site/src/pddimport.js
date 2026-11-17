@@ -368,6 +368,9 @@ export function buildPlan(blocks, ctx) {
     const dup = plan.newItems.find((n) => (r.orderNo && n.pddOrderNo === r.orderNo) || near(n));
     if (dup) {
       dup.extraBlocks = [...(dup.extraBlocks || []), block.id];
+      // второй снимок того же заказа — запасной для фото (если на первом фото не нашлось)
+      if (block.image) dup.moreImages = [...(dup.moreImages || []), block.image];
+      if (!dup.image && block.image) dup.image = block.image;
       plan.skipped += 1;
       continue;
     }

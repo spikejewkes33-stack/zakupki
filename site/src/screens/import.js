@@ -10,8 +10,11 @@ import { cropThumbFromBase64, cropAtFromBase64, snapshotUrl } from '../photocrop
 async function addPhotos(plan) {
   const one = async (x) => {
     if (!x.image) return x;
-    const blob = await cropThumbFromBase64(x.image).catch(() => null);
-    return blob ? { ...x, photoBlob: blob, photoUrl: URL.createObjectURL(blob), photoTried: true } : { ...x, photoTried: true };
+    for (const img of [x.image, ...(x.moreImages || []).filter((m) => m !== x.image)]) {
+      const blob = await cropThumbFromBase64(img).catch(() => null);
+      if (blob) return { ...x, image: img, photoBlob: blob, photoUrl: URL.createObjectURL(blob), photoTried: true };
+    }
+    return { ...x, photoTried: true };
   };
   return { ...plan, newItems: await Promise.all(plan.newItems.map(one)), updates: await Promise.all(plan.updates.map(one)) };
 }
