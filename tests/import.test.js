@@ -274,3 +274,15 @@ test('понятные сообщения: пустой файл, текст п�
   assert.equal(plan.newItems[0].clientId, null);
   assert.equal(plan.newItems[0].paidFen, 1590);
 });
+
+test('файл без строки ===PDD===: снимки делятся по времени нажатия, даже если время прилипло к тексту', () => {
+  // так пишет «Команда», если в «Добавить в текстовый файл» вставили только дату и текст
+  const file = `2026-11-17T10:05:00+03:00${fx('zakaz-detali')}\n2026-11-17T10:40:00+03:00\n${fx('logistika-jitu')}\n`;
+  const b = splitBlocks(file);
+  assert.equal(b.length, 2);
+  assert.equal(b[0].time, '2026-11-17T07:05:00.000Z');
+  const plan = buildPlan(b, ctx());
+  assert.equal(plan.newItems.length, 1);
+  assert.equal(plan.newItems[0].clientId, 'max');
+  assert.equal(plan.newItems[0].track, 'JT1000000000001');
+});

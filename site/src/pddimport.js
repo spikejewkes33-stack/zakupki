@@ -32,8 +32,12 @@ export function parseTime(line) {
 }
 
 // Метка ищется в любом месте строки: если в «Команде» выключили «Новую строку», блоки не слипаются.
+// Время нажатия (ISO 8601 из «Форматировать дату») тоже начинает новый блок: если строку ===PDD===
+// забыли вписать в «Команду» (так было у пользователя 17.11), снимки всё равно разделятся.
+const ISO_STAMP = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})/g;
 export function splitBlocks(fileText) {
-  const parts = String(fileText || '').replace(/\r\n?/g, '\n').split(BLOCK_MARK).slice(1);
+  const marked = String(fileText || '').replace(/\r\n?/g, '\n').replace(ISO_STAMP, (m) => `\n${BLOCK_MARK}\n${m}\n`);
+  const parts = marked.split(BLOCK_MARK).slice(1);
   return parts.map((part) => {
     const raw = part.split('\n');
     let i = 0;
@@ -52,7 +56,8 @@ export function splitBlocks(fileText) {
 export function diagnoseText(text) {
   const t = String(text || '').trim();
   if (!t) return 'empty';
-  if (t.includes(BLOCK_MARK)) return splitBlocks(t).length ? 'blocks' : 'empty';
+  ISO_STAMP.lastIndex = 0;
+  if (t.includes(BLOCK_MARK) || ISO_STAMP.test(t)) return splitBlocks(t).length ? 'blocks' : 'empty';
   if (/实付|订单|快递|速递|物流|[一-龥]{4,}/.test(t)) return 'nomarker';
   return 'foreign';
 }
