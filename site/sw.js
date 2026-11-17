@@ -14,7 +14,7 @@ const FILES = [
   'vendor/idb.js',
   'vendor/pdfmake.min.js',
   'vendor/vfs_fonts.js',
-  'vendor/xlsx.mini.min.js',
+  'vendor/exceljs.min.js',
   'src/app.js',
   'src/ui.js',
   'src/db.js',

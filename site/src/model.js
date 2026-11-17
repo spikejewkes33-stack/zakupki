@@ -1,5 +1,6 @@
 // Данные и правила: статусы, итоги закупки и клиента, проверки перед сохранением, защита от дублей.
 import { itemMoney, parseCents, priceWarning } from './money.js';
+import { russianName, hasCjk } from './names.js';
 
 export const STATUSES = [
   { id: 1, label: 'Заказ оформлен', short: 'Оформлен' },
@@ -20,7 +21,7 @@ export function todayLocal() {
 }
 
 // Название для показа: русское, а если его ещё нет — из PDD.
-export const itemTitle = (it) => it.name || 'Без названия';
+export const itemTitle = (it) => russianName(it) || 'Без названия';
 
 const norm = (s) => String(s || '').replace(/\s+/g, '').toUpperCase();
 
@@ -55,7 +56,8 @@ export function validateItem(form, allItems, selfId) {
   const warnings = [];
   const name = String(form.name || '').trim();
   const nameCn = String(form.nameCn || '').trim();
-  if (!name && !nameCn) errors.name = 'Нужно название товара';
+  if (!name) errors.name = 'Нужно русское название товара';
+  else if (hasCjk(name)) errors.name = 'Название по-русски, без иероглифов (оно идёт в опись)';
   if (!form.clientId) errors.clientId = 'Нужно выбрать клиента';
   const qty = Number(String(form.qty ?? '1').trim() || 1);
   if (!Number.isInteger(qty) || qty < 1 || qty > 9999) errors.qty = 'Количество — целое число от 1';

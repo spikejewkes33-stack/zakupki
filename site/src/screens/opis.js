@@ -1,9 +1,91 @@
 // Опись закупки: объединение похожих, правка, исключение, PDF и Excel.
-import { html, useState, Header, Empty, Sheet, FileReady, go, toast } from '../ui.js';
+import { html, useState, Header, Empty, Sheet, FileReady, go, toast, usePhotoUrl } from '../ui.js';
 import * as S from '../store.js';
 import { buildOpis, exportRows, privacyWarnings } from '../opis.js';
 import { fmtByn, formatCents } from '../money.js';
-import { pdfBlob, xlsxBlob, fileName } from '../export.js';
+import { pdfBlob, xlsxBlob, fileName, DEFAULT_FROM } from '../export.js';
+import { hasCjk } from '../names.js';
+
+// Сопроводительное письмо (форма KRI). Отправитель, адреса и получатель запоминаются один раз,
+// номер груза, вес и места — свои у каждой закупки. Хранится только на этом телефоне (localStorage).
+const SENDER_KEYS = ['senderName', 'senderPhone', 'fromAddr', 'toAddr', 'recipientName', 'recipientPhone'];
+const readLS = (k) => {
+  try {
+    return JSON.parse(localStorage.getItem(k) || '{}') || {};
+  } catch {
+    return {};
+  }
+};
+const writeLS = (k, v) => {
+  try {
+    localStorage.setItem(k, JSON.stringify(v));
+  } catch {
+    toast('Не удалось запомнить — память браузера недоступна');
+  }
+};
+const cargoKey = (pid) => `opis-cargo-${pid}`;
+function readLetter(pid) {
+  const s = readLS('opis-sender');
+  return { fromAddr: DEFAULT_FROM, ...s, ...readLS(cargoKey(pid)) };
+}
+const LETTER_FIELDS = [
+  ['senderName', 'ФИО отправителя', 'Иванов Иван Иванович'],
+  ['senderPhone', 'Телефон отправителя', '+375XXXXXXXXX'],
+  ['fromAddr', 'Откуда (склад)', DEFAULT_FROM],
+  ['toAddr', 'Адрес в Беларуси', 'г. Минск, ул. …, д. …, кв. …'],
+  ['recipientName', 'ФИО получателя', 'Иванова Ивана Ивановича'],
+  ['recipientPhone', 'Телефон получателя', '+375XXXXXXXXX'],
+];
+const CARGO_FIELDS = [
+  ['cargoNo', 'Номер груза', 'AB1234-1234-2', 'text'],
+  ['weight', 'Вес, кг', '123', 'decimal'],
+  ['places', 'Мест', '2', 'numeric'],
+];
+
+function LetterCard({ pid, letter, onChange, ro }) {
+  const set = (k, val) => {
+    if (SENDER_KEYS.includes(k)) writeLS('opis-sender', { ...readLS('opis-sender'), [k]: val });
+    else writeLS(cargoKey(pid), { ...readLS(cargoKey(pid)), [k]: val });
+    onChange();
+  };
+  const senderEmpty = !letter.senderName || !letter.toAddr || !letter.recipientName;
+  return html`<section class="card">
+    <div class="eyebrow">Сопроводительное письмо (форма KRI)</div>
+    <fieldset class="form" disabled=${ro}>
+      <div class="grid3">
+        ${CARGO_FIELDS.map(([k, label, ph, mode]) => html`<label class="small">${label}<input inputmode=${mode} value=${letter[k] || ''} placeholder=${ph} onInput=${(e) => set(k, e.target.value)} /></label>`)}
+      </div>
+      <details open=${senderEmpty}>
+        <summary>Отправитель и получатель${senderEmpty ? '' : `: ${letter.senderName} → ${letter.recipientName}`}</summary>
+        <p class="muted small">Запоминаются на этом телефоне, вписываются один раз.</p>
+        ${LETTER_FIELDS.map(([k, label, ph]) => html`<label class="small">${label}<input value=${letter[k] || ''} placeholder=${ph} onInput=${(e) => set(k, e.target.value)} /></label>`)}
+      </details>
+    </fieldset>
+  </section>`;
+}
+
+// Строка описи без русского названия: фото товара и поле прямо здесь. Название пишется в товары и запоминается.
+function NeedName({ row }) {
+  const first = row.itemIds.map((id) => S.state.items.get(id)).find((it) => it?.photoId);
+  const url = usePhotoUrl(first?.photoId);
+  const [val, setVal] = useState('');
+  const save = async () => {
+    const name = val.trim();
+    if (!name) return toast('Впишите название по-русски');
+    if (hasCjk(name)) return toast('Без иероглифов — только по-русски');
+    for (const id of row.itemIds) {
+      const it = S.state.items.get(id);
+      if (it && (!String(it.name || '').trim() || hasCjk(it.name))) await S.saveItem({ ...it, name });
+    }
+    toast('Записал — такие же товары дальше назовутся сами');
+    return undefined;
+  };
+  return html`<div class="need-name">
+    ${url ? html`<img src=${url} alt="" />` : html`<span class="need-name-nophoto">нет фото</span>`}
+    <input value=${val} placeholder="например, Сантиметр портновский" onInput=${(e) => setVal(e.target.value)} onKeyDown=${(e) => e.key === 'Enter' && save()} />
+    <button class="btn primary small" onClick=${save}>OK</button>
+  </div>`;
+}
 
 const MODES = [
   { id: 'total', label: 'Сумма' },
@@ -25,7 +107,7 @@ function RowSheet({ p, row, rows, ro, onClose }) {
     if (!name) return;
     for (const id of row.itemIds) {
       const it = S.state.items.get(id);
-      if (it && !it.name) await S.saveItem({ ...it, name });
+      if (it && (!String(it.name || '').trim() || hasCjk(it.name))) await S.saveItem({ ...it, name });
     }
     toast('Русское название записано в товары');
     onClose();
@@ -45,7 +127,7 @@ function RowSheet({ p, row, rows, ro, onClose }) {
   return html`<${Sheet} title="Строка описи" onClose=${onClose}>
     <fieldset class="form" disabled=${ro}>
       ${row.noRu > 0 && html`<div class="card warn">
-        <div>У ${row.noRu} товаров этой строки нет русского названия (в PDF китайские буквы не печатаются).</div>
+        <div>У товаров этой строки нет русского названия — без него опись не выгрузится.</div>
         <label>Русское название для них<input value=${ru} onInput=${(e) => setRu(e.target.value)} placeholder="например, Пижама детская" /></label>
         <button class="btn primary block" onClick=${setRussian}>Записать в товары</button>
       </div>`}
@@ -81,6 +163,7 @@ export function OpisScreen({ id }) {
   const [open, setOpen] = useState(null);
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState('');
+  const [, bump] = useState(0);
   if (!p) return html`<${Header} title="Опись" /><main><${Empty}>Закупок пока нет. <a href="#/purchase/new">Создать</a></${Empty}></main>`;
   const ro = p.archived;
   const o = buildOpis(S.itemsOf(p.id), p);
@@ -90,25 +173,30 @@ export function OpisScreen({ id }) {
   const showTotal = mode !== 'unit';
 
   const privacy = privacyWarnings(o.rows, [...S.state.clients.values()].map((c) => c.name));
+  const letter = readLetter(p.id);
+  const needName = visible.filter((r) => r.noRu > 0);
   const exportAs = async (kind) => {
+    if (needName.length) return toast(`Сначала впишите русское название: ${needName.length} строк(и) вверху`);
+    const missing = [...CARGO_FIELDS, ...LETTER_FIELDS].filter(([k]) => !String(letter[k] || '').trim()).map(([, label]) => label);
     const problems = [
+      missing.length > 0 && `В письме не заполнено: ${missing.join(', ')}.`,
       o.noPrice > 0 && `${o.noPrice} шт. без цены попадут в файл с суммой 0,00.`,
       o.zero > 0 && `${o.zero} шт. округлились до 0 BYN.`,
       privacy.length > 0 && `Строк, где в названии похоже на имя клиента или номер: ${privacy.length}.`,
-      o.noRu > 0 && `Строк без русского названия: ${o.noRu} — в PDF китайские буквы не печатаются.`,
     ].filter(Boolean);
-    if (problems.length && !confirm(`${problems.join('\n')}\nВсё равно сделать файл?`)) return;
+    if (problems.length && !confirm(`${problems.join('\n')}\nВсё равно сделать файл?`)) return undefined;
     setBusy(kind);
     try {
       const doc = await S.saveDoc({
         kind: 'opis', purchaseId: p.id, title: p.name, mode,
-        rows: exportRows(o), totalKop: o.totalKop, totalQty: o.totalQty,
+        rows: exportRows(o), totalKop: o.totalKop, totalQty: o.totalQty, letter,
       });
       setFile(await makeFile(doc, kind));
     } catch (e) {
       toast(`Ошибка: ${e.message}`);
     }
     setBusy('');
+    return undefined;
   };
 
   return html`<${Header} title="Опись" />
@@ -132,7 +220,11 @@ export function OpisScreen({ id }) {
       </div>`)}
     </section>`}
     ${o.noPrice > 0 && html`<div class="card warn">${o.noPrice} шт. без цены — их стоимость не посчитана. Укажите цены в товарах.</div>`}
-    ${o.noRu > 0 && html`<div class="card warn">Строк без русского названия: ${o.noRu} (отмечены «нет рус.»). Нажмите на строку и впишите русское название — оно запомнится для таких же товаров.</div>`}
+    ${needName.length > 0 && html`<section class="card warn">
+      <div class="eyebrow">Нужно русское название (${needName.length})</div>
+      <p class="small">Без него опись не выгрузится: в описи только русские названия. Впишите один раз — такие же товары дальше назовутся сами.</p>
+      ${needName.map((r) => html`<${NeedName} key=${r.key} row=${r} />`)}
+    </section>`}
     ${o.zero > 0 && html`<div class="card warn">${o.zero} шт. при таком округлении стоят 0 BYN. Поменяйте округление в настройках закупки.</div>`}
     ${privacy.length > 0 && html`<div class="card warn"><b>В описи не должно быть имён клиентов и номеров.</b>${privacy.map((w) => html`<div>«${w.name}» — ${w.reason}. Нажмите на строку и исправьте название.</div>`)}</div>`}
     ${o.rows.some((r) => r.stale) && html`<div class="card warn">В строки с отметкой ⚠ добавились или ушли товары: прежняя правка количества или исключение больше не действует. Проверьте их.</div>`}
@@ -141,7 +233,7 @@ export function OpisScreen({ id }) {
       <div class="opis-head"><span>№</span><span>Наименование</span><span>Кол-во</span>${showUnit && html`<span>Цена</span>`}${showTotal && html`<span>Сумма</span>`}</div>
       ${visible.map((r) => html`<button class="opis-row" onClick=${() => setOpen(r.key)}>
         <span>${r.n}</span>
-        <span>${r.name}${r.merged ? html` <span class="chip s3" title="объединено">∪</span>` : ''}${r.edited ? html` <span class="muted">✎</span>` : ''}${r.stale ? html` <span class="warn-text" title="состав строки изменился">⚠</span>` : ''}${r.noRu ? html` <span class="chip s2">нет рус.</span>` : ''}</span>
+        <span>${r.name}${r.merged ? html` <span class="chip s3" title="объединено">∪</span>` : ''}${r.edited ? html` <span class="muted">✎</span>` : ''}${r.stale ? html` <span class="warn-text" title="состав строки изменился">⚠</span>` : ''}${r.noRu ? html`<span class="warn-text">впишите название ↑</span>` : ''}${r.autoRu && !r.noRu ? html` <span class="muted small" title="подобрано по словарю">слов.</span>` : ''}</span>
         <span>${r.qty} ${r.unit}</span>
         ${showUnit && html`<span>${formatCents(r.avgKop)}</span>`}
         ${showTotal && html`<span>${formatCents(r.totalKop)}</span>`}
@@ -150,9 +242,11 @@ export function OpisScreen({ id }) {
       <div class="opis-total">Итого: ${o.totalQty} ед. · <b>${fmtByn(o.totalKop)}</b></div>
     </section>
 
+    <${LetterCard} pid=${p.id} letter=${letter} ro=${ro} onChange=${() => bump((x) => x + 1)} />
+    ${needName.length > 0 && html`<p class="warn-text small">PDF и Excel станут доступны, когда у всех строк будет русское название.</p>`}
     <div class="btn-row">
-      <button class="btn primary" disabled=${!!busy || !visible.length} onClick=${() => exportAs('pdf')}>${busy === 'pdf' ? 'Готовлю…' : 'PDF'}</button>
-      <button class="btn primary" disabled=${!!busy || !visible.length} onClick=${() => exportAs('xlsx')}>${busy === 'xlsx' ? 'Готовлю…' : 'Excel'}</button>
+      <button class="btn primary" disabled=${!!busy || !visible.length || needName.length > 0} onClick=${() => exportAs('pdf')}>${busy === 'pdf' ? 'Готовлю…' : 'PDF'}</button>
+      <button class="btn primary" disabled=${!!busy || !visible.length || needName.length > 0} onClick=${() => exportAs('xlsx')}>${busy === 'xlsx' ? 'Готовлю…' : 'Excel'}</button>
     </div>
 
     ${excluded.length > 0 && html`<section class="card">

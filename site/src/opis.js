@@ -1,6 +1,7 @@
 // Опись: объединение похожих товаров закупки в строки без имён клиентов, треков и номеров заказов.
 // Товары в базе не меняются: опись — это вид поверх них.
 import { itemMoney, averageKop } from './money.js';
+import { russianName, hasCjk } from './names.js';
 
 const STOP = new Set(['и', 'с', 'со', 'для', 'на', 'в', 'во', 'из', 'по', 'от', 'к', 'шт', 'штук', 'штука', 'штуки', 'the', 'a']);
 const VOWELS = 'аеиоуыэюя';
@@ -101,16 +102,18 @@ function unionFind(keys, merges) {
   return find;
 }
 
-// Название товара для описи: с комплектацией, если она указана («Носки (5 пар)»).
-// Если русского названия ещё нет — берётся название из PDD (по-китайски), строка помечается «нет русского».
+// Название товара для описи — только по-русски: своё название или подобранное по словарю из китайского.
+// Китайское название из PDD в опись не попадает никогда; нет русского — пусто, и опись просит его вписать.
+// Комплектация добавляется в скобках («Носки (5 пар)»).
 export function itemLabel(it) {
-  const name = String(it.name || it.nameCn || '').trim().replace(/\s+/g, ' ');
+  const name = russianName(it).replace(/\s+/g, ' ');
+  if (!name) return '';
   const kit = String(it.kit || '').trim();
-  return kit ? `${name} (${kit})` : name;
+  return kit && !hasCjk(kit) ? `${name} (${kit})` : name;
 }
 // Комплектация учитывается при объединении: «Носки» и «Носки» с комплектацией «5 пар» — разные строки.
-// Китайские названия словами не разбить — объединяются только полностью одинаковые.
-export const itemKey = (it) => (!it.name && it.nameCn ? `cn:${itemLabel(it)}` : groupKey(itemLabel(it)) || '(без названия)');
+// Товары без русского названия не объединяются по догадке: свой ключ на каждое китайское название.
+export const itemKey = (it) => (itemLabel(it) ? groupKey(itemLabel(it)) || '(без названия)' : `cn:${it.nameCn || it.id}`);
 
 function niceName(items) {
   const count = new Map();
@@ -118,7 +121,9 @@ function niceName(items) {
     const n = itemLabel(it);
     count.set(n, (count.get(n) || 0) + (it.qty || 1));
   }
-  const best = [...count.entries()].sort((x, y) => y[1] - x[1] || x[0].length - y[0].length)[0][0];
+  const named = [...count.entries()].filter(([n]) => n);
+  if (!named.length) return '';
+  const best = named.sort((x, y) => y[1] - x[1] || x[0].length - y[0].length)[0][0];
   return best.charAt(0).toUpperCase() + best.slice(1);
 }
 
@@ -172,7 +177,7 @@ export function buildOpis(items, purchase) {
       itemIds: g.items.map((it) => it.id),
       sourceNames: [...new Set(g.items.map(itemLabel))],
       autoName: niceName(g.items),
-      name: edit.name?.trim() || niceName(g.items),
+      name: (edit.name?.trim() && !hasCjk(edit.name) ? edit.name.trim() : '') || niceName(g.items),
       qty: finalQty,
       countedQty: qty,
       unit: edit.unit?.trim() || 'шт.',
@@ -181,7 +186,10 @@ export function buildOpis(items, purchase) {
       noPrice,
       zero,
       stale,
-      noRu: g.items.filter((it) => !it.name).length,
+      // русского названия нет совсем — строку нельзя выгружать, пока его не впишут
+      noRu: niceName(g.items) || (edit.name?.trim() && !hasCjk(edit.name)) ? 0 : g.items.length,
+      // название подобрано по словарю (у товаров своего русского названия нет) — стоит проверить
+      autoRu: g.items.filter((it) => !String(it.name || '').trim() || hasCjk(it.name)).length,
       excluded: sameSet && !!edit.excluded,
       edited: !!(edit.name || (sameSet && edit.qty) || edit.unit),
       merged: g.keys.length > 1,
@@ -212,11 +220,14 @@ export function buildOpis(items, purchase) {
   return { rows, totalKop, totalQty, noPrice, zero, noRu, suggestions };
 }
 
-// Строки для экспорта (PDF, Excel): только то, что разрешено в описи.
+// Строки для экспорта (PDF, Excel): только то, что разрешено в описи. Без русского названия — не выгружаем.
 export function exportRows(opisResult) {
-  return opisResult.rows
+  const rows = opisResult.rows
     .filter((r) => !r.excluded)
-    .map((r) => ({ n: r.n, name: r.name, qty: r.qty, unit: r.unit, totalKop: r.totalKop, avgKop: r.avgKop }));
+    .map((r) => ({ n: r.n, name: r.name, qty: r.qty, unit: hasCjk(r.unit) ? 'шт.' : r.unit, totalKop: r.totalKop, avgKop: r.avgKop }));
+  const bad = rows.filter((r) => !r.name || hasCjk(r.name));
+  if (bad.length) throw new Error(`Впишите русское название у ${bad.length} строк описи`);
+  return rows;
 }
 
 // В описи запрещены имена клиентов, треки и номера заказов (ТЗ п. 10). Названия товаров пишет человек,

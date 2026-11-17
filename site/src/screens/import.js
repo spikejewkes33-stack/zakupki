@@ -4,6 +4,7 @@ import * as S from '../store.js';
 import { splitBlocks, buildPlan, diagnoseText, asSingleBlock } from '../pddimport.js';
 import { centsToInput, parseCents, fmtCny, fmtByn, itemMoney } from '../money.js';
 import { statusLabel, itemTitle } from '../model.js';
+import { hasCjk } from '../names.js';
 import { cropThumbFromBase64, cropAtFromBase64, snapshotUrl } from '../photocrop.js';
 
 // Фото товара из снимков экрана: вырезаем заранее, чтобы показать в сводке и записать в карточку.
@@ -65,7 +66,8 @@ function NewItemCard({ n, update, multiPurchase }) {
       <label class="small grow">Название
         <input value=${n.name} onInput=${(e) => update({ name: e.target.value, nameAuto: false })} placeholder="впишите по-русски" />
         ${n.nameAuto && html`<span class="hint">${n.nameFrom === 'mt' ? 'взято из машинного перевода — проверьте и сократите' : 'переведено по словарю — проверьте'}</span>`}
-        ${!n.name && html`<span class="hint warn-text">не знаю такой товар — впишите один раз, запомню</span>`}</label>
+        ${!n.name && html`<span class="hint warn-text">не знаю такой товар — впишите один раз, запомню</span>`}
+        ${hasCjk(n.name) && html`<span class="hint warn-text">по-русски, без иероглифов — название идёт в опись</span>`}</label>
     </div>
     <div class="grid2">
       <label class="small">Количество<input inputmode="numeric" value=${n.qty} onInput=${(e) => update({ qty: Math.max(1, parseInt(e.target.value, 10) || 1) })} /></label>
@@ -174,7 +176,9 @@ export function ImportScreen() {
   const nothing = !active.length && !plan.tracks.length && !plan.updates.length && !plan.pending.length && !(plan.pendingResolved || []).length;
   const onlySeen = !active.length && !realTracks.length && !plan.updates.some((u) => Object.keys(u.patch).length || u.photoBlob) && !plan.pending.length;
 
+  const noName = active.filter((n) => !String(n.name || '').trim() || hasCjk(n.name)).length;
   const apply = async () => {
+    if (noName) return toast(`Впишите русское название у ${noName} товаров — без него товар не попадёт в опись`);
     setBusy(true);
     try {
       const r = await S.applyImport(plan);
@@ -198,7 +202,7 @@ export function ImportScreen() {
       ${plan.unknown.length > 0 && html`<div class="warn-text">Не понял снимков: <b>${plan.unknown.length}</b></div>`}
       ${plan.skipped > 0 && html`<div class="muted">Уже забирали раньше: ${plan.skipped}</div>`}
       ${noClient > 0 && html`<button class="btn block" onClick=${() => setBulk(true)}>Назначить клиента всем без клиента</button>`}
-      <button class="btn primary block" disabled=${busy || noClient > 0 || nothing} onClick=${apply}>${noClient ? 'Сначала выберите клиентов' : nothing ? 'Нечего добавлять' : onlySeen ? 'Отметить как забранное' : 'Записать'}</button>
+      <button class="btn primary block" disabled=${busy || noClient > 0 || noName > 0 || nothing} onClick=${apply}>${noClient ? 'Сначала выберите клиентов' : noName ? `Впишите названия (${noName})` : nothing ? 'Нечего добавлять' : onlySeen ? 'Отметить как забранное' : 'Записать'}</button>
       <button class="btn block" onClick=${() => setPlan(null)}>Отмена</button>
     </section>
 

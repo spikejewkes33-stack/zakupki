@@ -11,7 +11,8 @@ const files = [
   ['idb/build/index.js', 'idb.js'], // удобная обёртка IndexedDB
   ['pdfmake/build/pdfmake.min.js', 'pdfmake.min.js'], // PDF
   ['pdfmake/build/vfs_fonts.js', 'vfs_fonts.js'], // шрифт Roboto с кириллицей
-  ['xlsx/dist/xlsx.mini.min.js', 'xlsx.mini.min.js'], // Excel (SheetJS 0.20.3 с cdn.sheetjs.com)
+  ['xlsx/dist/xlsx.mini.min.js', 'xlsx.mini.min.js'], // прежний Excel (SheetJS), больше не используется
+  ['exceljs/dist/exceljs.min.js', 'exceljs.min.js'], // Excel с рамками и объединёнными ячейками (форма описи KRI)
 ];
 for (const [from, to] of files) copyFileSync(nm + from, out + to);
 console.log(`vendor: скопировано ${files.length} файлов`);

@@ -151,7 +151,8 @@ test('чужой экран не выдумывается, а показывае
   assert.equal(plan.unknown.length, 1);
 });
 
-test('запомненный перевод подставляется; без русского названия опись группирует по китайскому и предупреждает', () => {
+test('запомненный перевод подставляется; в описи нет иероглифов: русское по словарю или просьба вписать', async () => {
+  const { exportRows } = await import('../site/src/opis.js');
   const nameCn = '儿童秋衣秋裤套装德绒男童女童秋冬内衣家居服宝宝保暖打底睡衣';
   const plan = buildPlan(splitBlocks(block('2026-11-17T10:05:00+03:00', fx('zakaz-detali'))), ctx({ translations: { [nameCn]: 'Пижама детская' } }));
   assert.equal(plan.newItems[0].name, 'Пижама детская');
@@ -159,9 +160,18 @@ test('запомненный перевод подставляется; без �
     { id: 'a', name: '', nameCn, qty: 1, paidFen: 1590 },
     { id: 'b', name: '', nameCn, qty: 2, paidFen: 3000 },
     { id: 'c', name: '', nameCn: '袜子', qty: 1, paidFen: 500 },
+    { id: 'd', name: '', nameCn: '某某某', qty: 1, paidFen: 700 },
+    { id: 'e', name: '展升〈"RETANE聘珍官方旗舰店2米迷你小卷尺量衣皮尺可爱卡通测三围尺软尺', qty: 1, paidFen: 464 },
   ], purchase);
-  assert.equal(o.rows.length, 2); // одинаковые китайские — вместе, разные не склеиваются
-  assert.equal(o.noRu, 2);
+  const names = o.rows.map((r) => r.name);
+  assert.ok(names.includes('Термобельё детское'), names.join(', '));
+  assert.ok(names.includes('Носки'));
+  assert.ok(names.includes('Сантиметр портновский')); // китайское в поле «название» (старая карточка) — тоже по словарю
+  assert.ok(!names.some((n) => /[一-鿿]/.test(n)), names.join(', '));
+  assert.equal(o.noRu, 1); // незнакомый товар — пустое название, опись просит вписать
+  assert.throws(() => exportRows(o), /русское название/);
+  const ok = buildOpis([{ id: 'c', name: '', nameCn: '袜子', qty: 1, paidFen: 500 }], purchase);
+  assert.ok(!/[　-鿿＀-￯]/.test(JSON.stringify(exportRows(ok))));
   assert.equal(o.suggestions.length, 0);
 });
 
@@ -362,7 +372,7 @@ test('второй снимок пользователя (17.11): сантиме
   const r = parseOrder(['展开', title, '¥9.9', '×1', '实付：¥4.64', '订单号：261111-800000000000009']);
   assert.ok(!r.nameCn.startsWith('展'), r.nameCn);
   assert.ok(!r.nameCn.includes('旗舰店'), r.nameCn);
-  assert.equal(ruName(r.nameCn), 'Сантиметровая лента');
+  assert.equal(ruName(r.nameCn), 'Сантиметр портновский');
 });
 
 test('перевод экрана (RU:) от «Перевести текст»: короткое название, когда словаря не хватает', async () => {
