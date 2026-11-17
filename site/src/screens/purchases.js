@@ -100,6 +100,7 @@ export function Home() {
             <a class="btn" href=${`#/opis/${p.id}`}>Опись</a>
           </div>
           <a class="btn primary block" href="#/import">Забрать из PDD (снимки «Команды»)</a>
+          <a class="help-link" href="#/help">Как настроить «Команду» на iPhone</a>
         </section>
         <${OrderingPanel} p=${p} />`}
     ${open.length > 1 && html`<section class="card">

@@ -8,9 +8,10 @@ import { ClientList, ClientCard } from './screens/clients.js';
 import { OpisScreen } from './screens/opis.js';
 import { HistoryScreen, SettingsScreen } from './screens/other.js';
 import { ImportScreen } from './screens/import.js';
+import { HelpScreen } from './screens/help.js';
 
 const TABS = [
-  { path: '/', label: 'Главная', icon: '⌂', match: (r) => r === '/' || r === '/settings' || r === '/import' },
+  { path: '/', label: 'Главная', icon: '⌂', match: (r) => r === '/' || r === '/settings' || r === '/import' || r === '/help' },
   { path: '/purchases', label: 'Закупки', icon: '▤', match: (r) => /^\/(purchases|purchase\/|p\/|item\/)/.test(r) },
   { path: '/clients', label: 'Клиенты', icon: '☺', match: (r) => /^\/client/.test(r) },
   { path: '/opis', label: 'Опись', icon: '≡', match: (r) => /^\/opis/.test(r) },
@@ -39,6 +40,7 @@ function screen({ path, query }) {
   if (path === '/history') return html`<${HistoryScreen} />`;
   if (path === '/settings') return html`<${SettingsScreen} />`;
   if (path === '/import') return html`<${ImportScreen} />`;
+  if (path === '/help') return html`<${HelpScreen} />`;
   return html`<${Home} />`;
 }
 

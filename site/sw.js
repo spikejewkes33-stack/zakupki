@@ -26,6 +26,7 @@ const FILES = [
   'src/export.js',
   'src/pddimport.js',
   'src/screens/import.js',
+  'src/screens/help.js',
   'src/screens/purchases.js',
   'src/screens/items.js',
   'src/screens/clients.js',

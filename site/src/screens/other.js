@@ -91,6 +91,10 @@ export function SettingsScreen() {
       }}>Вернуть данные до восстановления (${timeRu(before.at)})</button>`}
     </section>
     <section class="card">
+      <h2>Помощь</h2>
+      <a class="btn block" href="#/help">Как настроить «Команду» для PDD</a>
+    </section>
+    <section class="card">
       <h2>Хранилище</h2>
       <p class="small">${persist === true ? 'Телефон обещал не стирать данные приложения.' : persist === false ? 'Телефон может стереть данные при нехватке места. Добавьте приложение на экран «Домой» и делайте копии.' : 'Статус хранилища неизвестен.'}</p>
       ${persist === false && html`<button class="btn block" onClick=${async () => { const r = await navigator.storage.persist(); setPersist(r); toast(r ? 'Готово' : 'Телефон отказал — делайте копии'); }}>Попросить не стирать данные</button>`}

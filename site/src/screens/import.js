@@ -50,10 +50,15 @@ export function ImportScreen() {
   const [showPaste, setShowPaste] = useState(false);
   const [bulk, setBulk] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [empty, setEmpty] = useState(false);
 
   const load = (text) => {
     const pl = makePlan(text);
-    if (!pl.blocks) return toast('В файле нет блоков «Команды» (строк ===PDD===)');
+    if (!pl.blocks) {
+      setEmpty(true);
+      return undefined;
+    }
+    setEmpty(false);
     setPlan(pl);
     return undefined;
   };
@@ -71,6 +76,9 @@ export function ImportScreen() {
         <p>Нажимайте Кнопку действия на экране заказа и на экране логистики в Pinduoduo. «Команда» копит текст в файле <b>PDD.txt</b> (iCloud Drive → Shortcuts).</p>
         <p>Здесь выберите этот файл — приложение само разложит товары по клиентам и привяжет треки. Перед записью покажет, что сделает.</p>
         <label class="btn primary block file-btn">Выбрать файл PDD.txt<input type="file" accept=".txt,text/plain" onChange=${onFile} /></label>
+        ${empty && html`<div class="card warn">В файле нет снимков «Команды». Если «Команда» ещё не собрана или файла PDD.txt нет — настройте её по инструкции.
+          <a class="btn block" href="#/help">Как настроить «Команду»</a></div>`}
+        <a class="help-link" href="#/help">Как настроить «Команду» на iPhone</a>
         <button class="linkish" onClick=${() => setShowPaste(!showPaste)}>${showPaste ? '▾' : '▸'} или вставить текст</button>
         ${showPaste && html`<textarea rows="6" value=${paste} onInput=${(e) => setPaste(e.target.value)} placeholder="===PDD===…"></textarea>
           <button class="btn block" onClick=${() => load(paste)}>Разобрать</button>`}

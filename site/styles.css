@@ -192,3 +192,18 @@ fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-direction: colu
 .check-row { cursor: pointer; }
 .warn-btn { border-color: var(--warn); color: var(--warn); }
 pre.raw { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; margin: 6px 0 0; color: var(--muted); }
+.help-link { display: block; text-align: center; padding: 10px; font-weight: 600; }
+.help h2 { margin: 10px 4px 0; }
+.help p { margin: 0; line-height: 1.5; }
+.help-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.help-step { display: flex; gap: 12px; align-items: flex-start; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; font-size: 17px; line-height: 1.5; }
+.help-step.done { opacity: .6; }
+.help-check { flex: none; min-width: 44px; height: 44px; border-radius: 22px; border: 2px solid var(--accent); background: none; color: var(--accent); font: inherit; font-weight: 700; font-size: 15px; cursor: pointer; }
+.help-step.done .help-check { background: var(--accent); color: #fff; }
+.help-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.help-sub { font-weight: 700; padding: 6px 4px 0; }
+.help-lines { margin: 6px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+.help-plain { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; line-height: 1.5; }
+.search-word { display: inline-block; border: 1.5px solid var(--accent); border-radius: 6px; padding: 0 6px; font-weight: 600; }
+.copy { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.copy code { font-size: 17px; background: var(--bg); padding: 2px 8px; border-radius: 6px; }
