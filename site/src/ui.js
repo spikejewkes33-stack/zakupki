@@ -80,7 +80,7 @@ function Thumb({ id }) {
 export function ItemRow({ item, showClient, showPurchase }) {
   const p = S.purchaseById(item.purchaseId);
   const m = itemMoney(item, p);
-  const variant = [item.color, item.size, item.kit, item.variant].filter(Boolean).join(' · ');
+  const variant = [item.color, item.size, item.kit].filter(Boolean).join(' · ');
   return html`<a class="row item-row" href=${`#/item/${item.id}`}>
     ${item.photoId && html`<${Thumb} id=${item.photoId} />`}
     <div class="row-main">

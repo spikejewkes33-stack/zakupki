@@ -123,6 +123,9 @@ const toFen = (s) => {
 };
 const MONEY = '(\\d+(?:,\\d{3})*(?:[.,]\\s?\\d{1,2})?)';
 
+// Подписи таблицы на экране заказа: если после «已购规格» сразу идёт такая подпись — значения в этой строке нет.
+const TABLE_LABEL = /^(?:该规格|已购|合计|店铺|商品|实付|共优惠|订单|支付|物流公司|快递单号|下单|拼单|发货|关联|优惠|运费)/;
+
 // «Метка：значение» в одной строке или значение следующей строкой (Live Text читает таблицу по-разному).
 function labelValue(lines, label) {
   const i = lines.findIndex((l) => label.test(l));
@@ -130,7 +133,8 @@ function labelValue(lines, label) {
   const same = lines[i].replace(label, '').replace(/^[\s:：]+/, '').replace(/[|｜].*$/, '').trim();
   if (same) return same;
   const next = (lines[i + 1] || '').replace(/[|｜].*$/, '').trim();
-  return /[:：]/.test(next) ? '' : next;
+  if (/[:：]/.test(next) || TABLE_LABEL.test(next)) return '';
+  return next;
 }
 
 // Название без «展开», имени магазина, цены и «…» (Live Text склеивает их с названием).
