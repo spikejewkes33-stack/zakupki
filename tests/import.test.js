@@ -384,3 +384,10 @@ test('перевод экрана (RU:) от «Перевести текст»: 
   // знакомого слова нет — первые слова перевода
   assert.equal(nameFromTranslation(['x', 'y', 'Официальный магазин Чудесный прибор складной'], 3, [2]), 'Чудесный прибор складной');
 });
+
+test('фото вручную: квадрат вокруг нажатия не выходит за снимок', async () => {
+  const { squareAt } = await import('../site/src/photocrop.js');
+  assert.deepEqual(squareAt(640, 1386, 0.12, 0.3), { x: 16, y: 355, w: 122, h: 122 });
+  assert.deepEqual(squareAt(640, 1386, 0, 0), { x: 0, y: 0, w: 122, h: 122 });
+  assert.deepEqual(squareAt(640, 1386, 1, 1), { x: 518, y: 1264, w: 122, h: 122 });
+});

@@ -52,29 +52,56 @@ export function findThumbBox(data, w, h) {
   return null;
 }
 
-// В браузере: снимок (Base64 JPEG/PNG) → вырезанное фото товара (JPEG Blob) или null.
-export async function cropThumbFromBase64(b64) {
+// Снимок из «Команды» (Base64) как адрес картинки для <img>.
+export function snapshotUrl(b64) {
   const clean = String(b64 || '').replace(/[^A-Za-z0-9+/=]/g, '');
-  if (clean.length < 100) return null;
-  const type = clean.startsWith('iVBOR') ? 'image/png' : 'image/jpeg';
+  if (clean.length < 100) return '';
+  return `data:${clean.startsWith('iVBOR') ? 'image/png' : 'image/jpeg'};base64,${clean}`;
+}
+
+async function snapshotCanvas(b64) {
+  const src = snapshotUrl(b64);
+  if (!src) return null;
   const img = new Image();
   const loaded = await new Promise((res) => {
     img.onload = () => res(true);
     img.onerror = () => res(false);
-    img.src = `data:${type};base64,${clean}`;
+    img.src = src;
   });
   if (!loaded || !img.naturalWidth) return null;
   const c = document.createElement('canvas');
   c.width = img.naturalWidth;
   c.height = img.naturalHeight;
-  const g = c.getContext('2d', { willReadFrequently: true });
-  g.drawImage(img, 0, 0);
-  const box = findThumbBox(g.getImageData(0, 0, c.width, c.height).data, c.width, c.height);
-  if (!box) return null;
+  c.getContext('2d', { willReadFrequently: true }).drawImage(img, 0, 0);
+  return c;
+}
+
+function cropBox(c, box) {
   const out = document.createElement('canvas');
   const side = Math.min(400, Math.max(box.w, box.h));
   out.width = side;
   out.height = side;
   out.getContext('2d').drawImage(c, box.x, box.y, box.w, box.h, 0, 0, side, side);
   return new Promise((res) => out.toBlob(res, 'image/jpeg', 0.85));
+}
+
+// В браузере: снимок (Base64 JPEG/PNG) → вырезанное фото товара (JPEG Blob) или null.
+export async function cropThumbFromBase64(b64) {
+  const c = await snapshotCanvas(b64);
+  if (!c) return null;
+  const box = findThumbBox(c.getContext('2d').getImageData(0, 0, c.width, c.height).data, c.width, c.height);
+  return box ? cropBox(c, box) : null;
+}
+
+// Квадрат вокруг точки, куда нажали на снимке (fx, fy — доли ширины и высоты).
+// Размер — как фото товара на экране заказа PDD (около 19% ширины экрана).
+export function squareAt(w, h, fx, fy, frac = 0.19) {
+  const side = Math.max(8, Math.min(w, h, Math.round(w * frac)));
+  const clamp = (v, max) => Math.max(0, Math.min(max - side, v));
+  return { x: clamp(Math.round(fx * w - side / 2), w), y: clamp(Math.round(fy * h - side / 2), h), w: side, h: side };
+}
+
+export async function cropAtFromBase64(b64, fx, fy) {
+  const c = await snapshotCanvas(b64);
+  return c ? cropBox(c, squareAt(c.width, c.height, fx, fy)) : null;
 }

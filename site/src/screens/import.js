@@ -1,17 +1,17 @@
 // «Забрать» из «Команды»: выбрать файл PDD.txt (или вставить текст) → сводка → поправить → применить.
-import { html, useState, Header, Empty, ClientPicker, go, timeRu, toast } from '../ui.js';
+import { html, useState, Header, Empty, ClientPicker, Sheet, go, timeRu, toast } from '../ui.js';
 import * as S from '../store.js';
 import { splitBlocks, buildPlan, diagnoseText, asSingleBlock } from '../pddimport.js';
 import { centsToInput, parseCents, fmtCny, fmtByn, itemMoney } from '../money.js';
 import { statusLabel, itemTitle } from '../model.js';
-import { cropThumbFromBase64 } from '../photocrop.js';
+import { cropThumbFromBase64, cropAtFromBase64, snapshotUrl } from '../photocrop.js';
 
 // Фото товара из снимков экрана: вырезаем заранее, чтобы показать в сводке и записать в карточку.
 async function addPhotos(plan) {
   const one = async (x) => {
     if (!x.image) return x;
     const blob = await cropThumbFromBase64(x.image).catch(() => null);
-    return blob ? { ...x, photoBlob: blob, photoUrl: URL.createObjectURL(blob) } : x;
+    return blob ? { ...x, photoBlob: blob, photoUrl: URL.createObjectURL(blob), photoTried: true } : { ...x, photoTried: true };
   };
   return { ...plan, newItems: await Promise.all(plan.newItems.map(one)), updates: await Promise.all(plan.updates.map(one)) };
 }
@@ -29,8 +29,23 @@ function makePlan(text) {
   return { blocks: blocks.length, ...plan };
 }
 
+// Фото не нашлось само или вырезалось не то: показываем весь снимок, человек нажимает на товар.
+function SnapshotPicker({ image, onPick, onClose }) {
+  const tap = async (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const blob = await cropAtFromBase64(image, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+    if (blob) onPick(blob);
+    else toast('Не получилось вырезать — попробуйте ещё раз');
+  };
+  return html`<${Sheet} title="Нажмите на фото товара" onClose=${onClose}>
+    <img class="snapshot" src=${snapshotUrl(image)} alt="Снимок экрана" onClick=${tap} />
+  </${Sheet}>`;
+}
+
 function NewItemCard({ n, update, multiPurchase }) {
   const [pick, setPick] = useState(false);
+  const [snap, setSnap] = useState(false);
+  const photoNote = n.photoUrl ? 'другое фото' : n.photoTried ? 'не нашёл — нажмите' : 'ищу фото…';
   const p = S.purchaseById(n.purchaseId);
   const m = itemMoney({ qty: n.qty, paidFen: n.paidFen }, p);
   return html`<div class=${`card import-item ${n.skip ? 'off' : ''}`}>
@@ -40,7 +55,10 @@ function NewItemCard({ n, update, multiPurchase }) {
       ${n.clientId ? `${S.clientName(n.clientId)}${n.clientBy === 'time' ? ' · по времени' : ''}` : 'Выбрать клиента'}
     </button>
     <div class="import-head">
-      ${n.photoUrl ? html`<img class="import-photo" src=${n.photoUrl} alt="Фото товара" />` : html`<div class="import-photo none">нет фото</div>`}
+      ${n.image ? html`<button class="import-photo-btn" onClick=${() => setSnap(true)} aria-label="Выбрать фото на снимке">
+          ${n.photoUrl ? html`<img class="import-photo" src=${n.photoUrl} alt="Фото товара" />` : html`<div class="import-photo none">нет фото</div>`}
+          <span class="small">${photoNote}</span></button>`
+        : html`<div class="import-photo none">нет снимка</div>`}
       <label class="small grow">Название
         <input value=${n.name} onInput=${(e) => update({ name: e.target.value, nameAuto: false })} placeholder="впишите по-русски" />
         ${n.nameAuto && html`<span class="hint">${n.nameFrom === 'mt' ? 'взято из машинного перевода — проверьте и сократите' : 'переведено по словарю — проверьте'}</span>`}
@@ -56,13 +74,15 @@ function NewItemCard({ n, update, multiPurchase }) {
       : html`<div class="muted small">Трека пока нет — появится, когда продавец отправит (снимите этот заказ ещё раз).</div>`}
     <details class="muted small"><summary>Из PDD</summary><div>${n.nameCn || '—'}</div>${n.variant && html`<div>Вариант: ${n.variant}</div>`}<div>Заказ ${n.pddOrderNo || '—'}</div></details>
     ${n.doubts.length > 0 && html`<div class="warn-text small">Проверьте: ${n.doubts.join('; ')}</div>`}
+    ${snap && html`<${SnapshotPicker} image=${n.image} onClose=${() => setSnap(false)}
+      onPick=${(blob) => { setSnap(false); update({ photoBlob: blob, photoUrl: URL.createObjectURL(blob), photoTried: true }); }} />`}
     ${pick && html`<${ClientPicker} title="Чей товар?" onClose=${() => setPick(false)} onPick=${(c) => { setPick(false); update({ clientId: c.id, clientBy: 'hand' }); }} />`}
   </div>`;
 }
 
 // Фото пришли позже, чем пользователь мог поправить сводку: переносим только фото.
 function mergePhotos(cur, ph) {
-  const pick = (list, src) => list.map((x, i) => (src[i]?.photoBlob ? { ...x, photoBlob: src[i].photoBlob, photoUrl: src[i].photoUrl } : x));
+  const pick = (list, src) => list.map((x, i) => (x.photoBlob ? x : src[i]?.photoBlob ? { ...x, photoBlob: src[i].photoBlob, photoUrl: src[i].photoUrl, photoTried: true } : { ...x, photoTried: true }));
   return { ...cur, newItems: pick(cur.newItems, ph.newItems), updates: pick(cur.updates, ph.updates) };
 }
 
