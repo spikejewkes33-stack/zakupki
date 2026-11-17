@@ -364,3 +364,23 @@ test('второй снимок пользователя (17.11): сантиме
   assert.ok(!r.nameCn.includes('旗舰店'), r.nameCn);
   assert.equal(ruName(r.nameCn), 'Сантиметровая лента');
 });
+
+test('перевод экрана (RU:) от «Перевести текст»: короткое название, когда словаря не хватает', async () => {
+  const { nameFromTranslation } = await import('../site/src/names.js');
+  const cn = ['展开', '某某店', '可爱卡通测量小工具', '¥9.9', '×1', '实付：¥4.64', '订单号：261111-800000000000009'];
+  const ru = ['Развернуть', 'Магазин', 'Милая мультяшная маленькая рулетка для измерения', '¥9.9', '×1', 'Фактически оплачено: ¥4.64', 'Номер заказа: 261111-800000000000009'];
+  const file = `===PDD===\n2026-11-17T10:05:00+03:00\n${cn.join('\n')}\nRU:${ru.join('\n')}\nIMG:aGVsbG8=\n`;
+  const b = splitBlocks(file);
+  assert.equal(b[0].lines.length, cn.length); // перевод не попал в китайский текст
+  assert.equal(b[0].ru.length, ru.length);
+  assert.equal(b[0].image, 'aGVsbG8=');
+  const plan = buildPlan(b, ctx());
+  assert.equal(plan.newItems[0].name, 'Рулетка');
+  assert.equal(plan.newItems[0].nameFrom, 'mt');
+  assert.equal(plan.newItems[0].qty, 1);
+  assert.deepEqual(plan.newItems[0].doubts, []);
+  // число строк перевода не совпало — берём строки примерно на тех же местах
+  assert.equal(nameFromTranslation(['a', 'Милая рулетка'], 4, [2]), 'Рулетка');
+  // знакомого слова нет — первые слова перевода
+  assert.equal(nameFromTranslation(['x', 'y', 'Официальный магазин Чудесный прибор складной'], 3, [2]), 'Чудесный прибор складной');
+});

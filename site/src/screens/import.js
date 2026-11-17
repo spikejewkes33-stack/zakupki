@@ -43,7 +43,7 @@ function NewItemCard({ n, update, multiPurchase }) {
       ${n.photoUrl ? html`<img class="import-photo" src=${n.photoUrl} alt="Фото товара" />` : html`<div class="import-photo none">нет фото</div>`}
       <label class="small grow">Название
         <input value=${n.name} onInput=${(e) => update({ name: e.target.value, nameAuto: false })} placeholder="впишите по-русски" />
-        ${n.nameAuto && html`<span class="hint">переведено по словарю — проверьте</span>`}
+        ${n.nameAuto && html`<span class="hint">${n.nameFrom === 'mt' ? 'взято из машинного перевода — проверьте и сократите' : 'переведено по словарю — проверьте'}</span>`}
         ${!n.name && html`<span class="hint warn-text">не знаю такой товар — впишите один раз, запомню</span>`}</label>
     </div>
     <div class="grid2">

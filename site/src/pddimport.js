@@ -5,7 +5,7 @@
 // Экран заказа (订单详情) → карточка товара; экран логистики (查看物流) → трек к карточке по номеру заказа.
 // Ничего не додумывается: что не распознано — показывается пользователю.
 import { clientForTime } from './order.js';
-import { ruName } from './names.js';
+import { ruName, nameFromTranslation } from './names.js';
 
 export const BLOCK_MARK = '===PDD===';
 
@@ -52,8 +52,15 @@ export function splitBlocks(fileText) {
       image = body.slice(at).join('').replace(/^IMG:/i, '').replace(/[^A-Za-z0-9+/=]/g, '');
       body = body.slice(0, at);
     }
+    // Перевод экрана от «Перевести текст» (Apple, без интернета): строка «RU:» и дальше до «IMG:».
+    let ru = [];
+    const ri = body.findIndex((l) => /^RU:/i.test(l));
+    if (ri >= 0) {
+      ru = body.slice(ri).map((l, k) => (k === 0 ? l.replace(/^RU:\s*/i, '') : l)).filter(Boolean);
+      body = body.slice(0, ri);
+    }
     const text = body.join('\n');
-    return { id: blockId(time, text), time, lines: body, text, image };
+    return { id: blockId(time, text), time, lines: body, text, image, ru };
   }).filter((b) => b.lines.length);
 }
 
@@ -197,12 +204,16 @@ export function parseOrder(lines) {
     start = glued ? i : i + 1;
     break;
   }
-  const head = lines.slice(start, anchor).filter((l) => !PRICE_LINE.test(l) && !isQtyLine(l) && !END_ITEM.test(l));
+  const headIdx = [];
+  for (let i = start; i < anchor; i++) if (!PRICE_LINE.test(lines[i]) && !isQtyLine(lines[i]) && !END_ITEM.test(lines[i])) headIdx.push(i);
+  const head = headIdx.map((i) => lines[i]);
   let shop = '';
   let titleLines = head;
+  let titleIdx = headIdx;
   if (!glued && (head.length >= 3 || (head.length === 2 && SHOP_HINT.test(head[0])))) {
     shop = head[0];
     titleLines = head.slice(1);
+    titleIdx = headIdx.slice(1);
   }
   const nameCn = cleanTitle(titleLines.join(''));
   if (!nameCn) doubts.push('не нашёл название');
@@ -233,7 +244,7 @@ export function parseOrder(lines) {
   const nd = orderNoDoubt(orderNo);
   if (nd) doubts.push(nd);
   const st = track ? logisticsStatus(lines) : { status: 1, statusWord: '' };
-  return { kind: 'order', orderNo, nameCn, shop, variant, qty, paidFen, priceFen, track: track.length >= 8 ? track : '',
+  return { kind: 'order', orderNo, nameCn, shop, variant, qty, paidFen, priceFen, titleIdx, track: track.length >= 8 ? track : '',
     carrier: carrierCn ? carrierLabel(carrierCn) : '', status: track ? Math.max(4, st.status) : 1, doubts };
 }
 
@@ -332,7 +343,10 @@ export function buildPlan(blocks, ctx) {
       plan.unknown.push({ blockId: block.id, time: block.time, preview: block.lines.slice(0, 6), doubts: r.doubts });
       continue;
     }
-    const ru = ctx.translations?.[r.nameCn] || ruName(r.nameCn, r.variant);
+    const remembered = ctx.translations?.[r.nameCn] || '';
+    const fromDict = remembered ? '' : ruName(r.nameCn, r.variant);
+    const fromMt = remembered || fromDict ? '' : nameFromTranslation(block.ru, block.lines.length, r.titleIdx);
+    const ru = remembered || fromDict || fromMt;
     const exist = byOrder(r.orderNo);
     if (exist) {
       // Карточка уже есть (сделана вручную или прошлым снимком) — дополняем только пустые поля.
@@ -360,7 +374,7 @@ export function buildPlan(blocks, ctx) {
     const w = whereAndWho(block.time);
     plan.newItems.push({
       blockId: block.id, time: block.time, purchaseId: w.purchaseId, clientId: w.clientId, clientBy: w.by,
-      nameCn: r.nameCn, name: ru, nameAuto: !ctx.translations?.[r.nameCn] && !!ru, variant: r.variant, shop: r.shop,
+      nameCn: r.nameCn, name: ru, nameAuto: !remembered && !!ru, nameFrom: remembered ? 'memory' : fromDict ? 'dict' : fromMt ? 'mt' : '', variant: r.variant, shop: r.shop,
       qty: r.qty, paidFen: r.paidFen, pddOrderNo: r.orderNo, doubts: w.doubt ? [...r.doubts, w.doubt] : r.doubts,
       track: r.track || '', carrier: r.carrier || '', status: r.status || 1, image: block.image || '',
     });
