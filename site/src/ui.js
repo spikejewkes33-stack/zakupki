@@ -84,7 +84,7 @@ export function ItemRow({ item, showClient, showPurchase }) {
   return html`<a class="row item-row" href=${`#/item/${item.id}`}>
     ${item.photoId && html`<${Thumb} id=${item.photoId} />`}
     <div class="row-main">
-      <div class="row-title">${itemTitle(item)}${!item.name && item.nameCn ? html` <span class="chip s2">нет рус.</span>` : ''}</div>
+      <div class="row-title">${itemTitle(item)}${!item.name ? html` <span class="chip s2">впишите название</span>` : ''}</div>
       ${variant && html`<div class="row-sub">${variant}</div>`}
       ${showClient && html`<div class="row-sub">${S.clientName(item.clientId)}${showPurchase ? ` · ${p?.name || ''}` : ''}</div>`}
       <div class="row-sub">

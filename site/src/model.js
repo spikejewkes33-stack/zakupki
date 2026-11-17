@@ -20,7 +20,7 @@ export function todayLocal() {
 }
 
 // Название для показа: русское, а если его ещё нет — из PDD.
-export const itemTitle = (it) => it.name || it.nameCn || '(без названия)';
+export const itemTitle = (it) => it.name || 'Без названия';
 
 const norm = (s) => String(s || '').replace(/\s+/g, '').toUpperCase();
 

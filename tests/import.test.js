@@ -355,3 +355,12 @@ test('таблица экрана заказа прочитана столбца
   assert.equal(r.track, '777400000000008');
   assert.equal(r.qty, 1);
 });
+
+test('второй снимок пользователя (17.11): сантиметровая лента и «展升» вместо «展开»', async () => {
+  const { ruName } = await import('../site/src/names.js');
+  const title = '展升〈"RETANE聘珍官方旗舰店官方旗舰11.11秒杀2米迷你简约携便小卷尺量衣1皮尺量腰围臂围可爱卡通测三围尺软尺绿＋粉（2个）便携尺，2米（厘米英寸两面）便携尺';
+  const r = parseOrder(['展开', title, '¥9.9', '×1', '实付：¥4.64', '订单号：261111-800000000000009']);
+  assert.ok(!r.nameCn.startsWith('展'), r.nameCn);
+  assert.ok(!r.nameCn.includes('旗舰店'), r.nameCn);
+  assert.equal(ruName(r.nameCn), 'Сантиметровая лента');
+});
