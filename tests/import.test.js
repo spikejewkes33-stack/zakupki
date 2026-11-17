@@ -286,3 +286,15 @@ test('файл без строки ===PDD===: снимки делятся по �
   assert.equal(plan.newItems[0].clientId, 'max');
   assert.equal(plan.newItems[0].track, 'JT1000000000001');
 });
+
+test('настоящий файл PDD.txt с iPhone пользователя (17.11): без ===PDD===, время прилипло к часам статус-строки', () => {
+  const b = splitBlocks(fx('pdd-txt-iphone-bez-metki'));
+  assert.equal(b.length, 1);
+  assert.equal(b[0].time, '2026-11-17T12:44:34.000Z');
+  const r = classify(b[0].lines);
+  assert.equal(r.kind, 'logistics');
+  assert.equal(r.track, '70000000000002');
+  assert.equal(r.carrier, '中通快递 (ZTO)');
+  assert.equal(r.orderNo, '261113-200000000000002');
+  assert.equal(r.status, 6);
+});
