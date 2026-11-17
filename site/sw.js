@@ -24,6 +24,8 @@ const FILES = [
   'src/order.js',
   'src/opis.js',
   'src/export.js',
+  'src/pddimport.js',
+  'src/screens/import.js',
   'src/screens/purchases.js',
   'src/screens/items.js',
   'src/screens/clients.js',

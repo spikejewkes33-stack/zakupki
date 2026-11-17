@@ -63,6 +63,7 @@ function similarWord(a, b) {
 // Да — если слова попарно похожи (шарф / шарфик), или одно название — это другое плюс одно слово без цифр.
 export function isDoubtfulPair(keyA, keyB) {
   if (keyA === keyB || !keyA || !keyB) return false;
+  if (keyA.startsWith('cn:') || keyB.startsWith('cn:')) return false; // китайские — без догадок
   const a = keyA.split(' ');
   const b = keyB.split(' ');
   const digitsA = a.filter((t) => /\d/.test(t)).sort().join(' ');
@@ -101,13 +102,15 @@ function unionFind(keys, merges) {
 }
 
 // Название товара для описи: с комплектацией, если она указана («Носки (5 пар)»).
+// Если русского названия ещё нет — берётся название из PDD (по-китайски), строка помечается «нет русского».
 export function itemLabel(it) {
-  const name = String(it.name || '').trim().replace(/\s+/g, ' ');
+  const name = String(it.name || it.nameCn || '').trim().replace(/\s+/g, ' ');
   const kit = String(it.kit || '').trim();
   return kit ? `${name} (${kit})` : name;
 }
 // Комплектация учитывается при объединении: «Носки» и «Носки» с комплектацией «5 пар» — разные строки.
-export const itemKey = (it) => groupKey(itemLabel(it)) || '(без названия)';
+// Китайские названия словами не разбить — объединяются только полностью одинаковые.
+export const itemKey = (it) => (!it.name && it.nameCn ? `cn:${itemLabel(it)}` : groupKey(itemLabel(it)) || '(без названия)');
 
 function niceName(items) {
   const count = new Map();
@@ -178,6 +181,7 @@ export function buildOpis(items, purchase) {
       noPrice,
       zero,
       stale,
+      noRu: g.items.filter((it) => !it.name).length,
       excluded: sameSet && !!edit.excluded,
       edited: !!(edit.name || (sameSet && edit.qty) || edit.unit),
       merged: g.keys.length > 1,
@@ -192,6 +196,7 @@ export function buildOpis(items, purchase) {
   const totalQty = included.reduce((s, r) => s + r.qty, 0);
   const noPrice = included.reduce((s, r) => s + r.noPrice, 0);
   const zero = included.reduce((s, r) => s + r.zero, 0);
+  const noRu = included.filter((r) => r.noRu > 0).length;
 
   // Предложения объединить (при сомнении — спрашиваем пользователя).
   const rejected = new Set(opis.rejected || []);
@@ -204,7 +209,7 @@ export function buildOpis(items, purchase) {
       if (hit && !rejected.has(pairId(A.key, B.key))) suggestions.push({ a: A, b: B, id: pairId(A.key, B.key) });
     }
   }
-  return { rows, totalKop, totalQty, noPrice, zero, suggestions };
+  return { rows, totalKop, totalQty, noPrice, zero, noRu, suggestions };
 }
 
 // Строки для экспорта (PDF, Excel): только то, что разрешено в описи.

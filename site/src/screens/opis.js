@@ -18,6 +18,18 @@ export async function makeFile(doc, kind) {
 
 function RowSheet({ p, row, rows, ro, onClose }) {
   const [f, setF] = useState({ name: row.name, qty: String(row.qty), unit: row.unit });
+  const [ru, setRu] = useState('');
+  // Русское название пишется в сами товары (и запоминается для таких же китайских названий в будущем).
+  const setRussian = async () => {
+    const name = ru.trim();
+    if (!name) return;
+    for (const id of row.itemIds) {
+      const it = S.state.items.get(id);
+      if (it && !it.name) await S.saveItem({ ...it, name });
+    }
+    toast('Русское название записано в товары');
+    onClose();
+  };
   const [mergeWith, setMergeWith] = useState('');
   const save = async () => {
     const qty = Number(f.qty);
@@ -32,6 +44,11 @@ function RowSheet({ p, row, rows, ro, onClose }) {
   };
   return html`<${Sheet} title="Строка описи" onClose=${onClose}>
     <fieldset class="form" disabled=${ro}>
+      ${row.noRu > 0 && html`<div class="card warn">
+        <div>У ${row.noRu} товаров этой строки нет русского названия (в PDF китайские буквы не печатаются).</div>
+        <label>Русское название для них<input value=${ru} onInput=${(e) => setRu(e.target.value)} placeholder="например, Пижама детская" /></label>
+        <button class="btn primary block" onClick=${setRussian}>Записать в товары</button>
+      </div>`}
       <label>Название в описи<input value=${f.name} onInput=${(e) => setF({ ...f, name: e.target.value })} /></label>
       <div class="grid2">
         <label>Количество<input inputmode="numeric" value=${f.qty} onInput=${(e) => setF({ ...f, qty: e.target.value })} /></label>
@@ -77,7 +94,8 @@ export function OpisScreen({ id }) {
     const problems = [
       o.noPrice > 0 && `${o.noPrice} шт. без цены попадут в файл с суммой 0,00.`,
       o.zero > 0 && `${o.zero} шт. округлились до 0 BYN.`,
-      privacy.length > 0 && `В названиях ${privacy.length} строк похоже на имя клиента или номер.`,
+      privacy.length > 0 && `Строк, где в названии похоже на имя клиента или номер: ${privacy.length}.`,
+      o.noRu > 0 && `Строк без русского названия: ${o.noRu} — в PDF китайские буквы не печатаются.`,
     ].filter(Boolean);
     if (problems.length && !confirm(`${problems.join('\n')}\nВсё равно сделать файл?`)) return;
     setBusy(kind);
@@ -114,6 +132,7 @@ export function OpisScreen({ id }) {
       </div>`)}
     </section>`}
     ${o.noPrice > 0 && html`<div class="card warn">${o.noPrice} шт. без цены — их стоимость не посчитана. Укажите цены в товарах.</div>`}
+    ${o.noRu > 0 && html`<div class="card warn">Строк без русского названия: ${o.noRu} (отмечены «нет рус.»). Нажмите на строку и впишите русское название — оно запомнится для таких же товаров.</div>`}
     ${o.zero > 0 && html`<div class="card warn">${o.zero} шт. при таком округлении стоят 0 BYN. Поменяйте округление в настройках закупки.</div>`}
     ${privacy.length > 0 && html`<div class="card warn"><b>В описи не должно быть имён клиентов и номеров.</b>${privacy.map((w) => html`<div>«${w.name}» — ${w.reason}. Нажмите на строку и исправьте название.</div>`)}</div>`}
     ${o.rows.some((r) => r.stale) && html`<div class="card warn">В строки с отметкой ⚠ добавились или ушли товары: прежняя правка количества или исключение больше не действует. Проверьте их.</div>`}
@@ -122,7 +141,7 @@ export function OpisScreen({ id }) {
       <div class="opis-head"><span>№</span><span>Наименование</span><span>Кол-во</span>${showUnit && html`<span>Цена</span>`}${showTotal && html`<span>Сумма</span>`}</div>
       ${visible.map((r) => html`<button class="opis-row" onClick=${() => setOpen(r.key)}>
         <span>${r.n}</span>
-        <span>${r.name}${r.merged ? html` <span class="chip s3" title="объединено">∪</span>` : ''}${r.edited ? html` <span class="muted">✎</span>` : ''}${r.stale ? html` <span class="warn-text" title="состав строки изменился">⚠</span>` : ''}</span>
+        <span>${r.name}${r.merged ? html` <span class="chip s3" title="объединено">∪</span>` : ''}${r.edited ? html` <span class="muted">✎</span>` : ''}${r.stale ? html` <span class="warn-text" title="состав строки изменился">⚠</span>` : ''}${r.noRu ? html` <span class="chip s2">нет рус.</span>` : ''}</span>
         <span>${r.qty} ${r.unit}</span>
         ${showUnit && html`<span>${formatCents(r.avgKop)}</span>`}
         ${showTotal && html`<span>${formatCents(r.totalKop)}</span>`}

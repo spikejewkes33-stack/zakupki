@@ -99,6 +99,7 @@ export function Home() {
             <a class="btn" href=${`#/p/${p.id}`}>Клиенты закупки</a>
             <a class="btn" href=${`#/opis/${p.id}`}>Опись</a>
           </div>
+          <a class="btn primary block" href="#/import">Забрать из PDD (снимки «Команды»)</a>
         </section>
         <${OrderingPanel} p=${p} />`}
     ${open.length > 1 && html`<section class="card">
@@ -255,7 +256,7 @@ export function PurchaseScreen({ id }) {
 
     ${deleted.length > 0 && html`<section class="card">
       <div class="eyebrow">Удалённые товары (${deleted.length})</div>
-      ${deleted.map((it) => html`<div class="row"><div class="row-main"><div class="row-title">${it.name}</div><div class="row-sub">${S.clientName(it.clientId)}</div></div>
+      ${deleted.map((it) => html`<div class="row"><div class="row-main"><div class="row-title">${it.name || it.nameCn}</div><div class="row-sub">${S.clientName(it.clientId)}</div></div>
         ${!ro && html`<button class="btn small" onClick=${() => S.restoreItem(it.id)}>Вернуть</button>`}</div>`)}
     </section>`}
 

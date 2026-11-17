@@ -49,7 +49,7 @@ export function formatChange(field, v) {
   return String(v);
 }
 
-const ACTIONS = { create: 'Создан', update: 'Изменён', move: 'Перенесён другому клиенту', delete: 'Удалён', restore: 'Восстановлен' };
+const ACTIONS = { import: 'Из «Команды» (PDD)', create: 'Создан', update: 'Изменён', move: 'Перенесён другому клиенту', delete: 'Удалён', restore: 'Восстановлен' };
 
 export function History({ id }) {
   const ev = S.eventsFor(id);
@@ -69,7 +69,7 @@ export function ItemForm({ id, query }) {
   const p = S.purchaseById(pid);
   const init = () => {
     const base = existing || emptyItem(pid, query.get('c') || '');
-    return { ...base, qty: String(base.qty), unitFen: centsToInput(base.unitFen) };
+    return { ...base, nameCn: base.nameCn || '', variant: base.variant || '', qty: String(base.qty), unitFen: centsToInput(base.unitFen), paidFen: centsToInput(base.paidFen ?? null) };
   };
   const [f, setF] = useState(init);
   const [errors, setErrors] = useState({});
@@ -134,8 +134,11 @@ export function ItemForm({ id, query }) {
         <button type="button" class="btn block left" onClick=${() => setPick(true)}>${f.clientId ? S.clientName(f.clientId) : 'Выбрать клиента'}</button>
         ${errors.clientId && html`<span class="error">${errors.clientId}</span>`}
       </div>
-      <label>Название товара *<input value=${f.name} onInput=${set('name')} placeholder="например, Шарф" autocomplete="off" />
-        ${errors.name && html`<span class="error">${errors.name}</span>`}</label>
+      <label>Название по-русски (для описи)${f.nameCn ? '' : ' *'}<input value=${f.name} onInput=${set('name')} placeholder="например, Шарф" autocomplete="off" />
+        ${errors.name && html`<span class="error">${errors.name}</span>`}
+        ${f.nameCn && !f.name && html`<span class="hint warn-text">Нет русского названия — в описи будет предупреждение.</span>`}</label>
+      ${(f.nameCn || existing?.importBlockId) && html`<label>Название из PDD<textarea rows="2" value=${f.nameCn} onInput=${set('nameCn')}></textarea></label>`}
+      ${(f.variant || f.nameCn) && html`<label>Вариант из PDD<input value=${f.variant} onInput=${set('variant')} /></label>`}
       <div class="grid2">
         <label>Цвет<input value=${f.color} onInput=${set('color')} /></label>
         <label>Размер<input value=${f.size} onInput=${set('size')} /></label>
@@ -144,9 +147,12 @@ export function ItemForm({ id, query }) {
       <div class="grid2">
         <label>Количество<input inputmode="numeric" value=${f.qty} onInput=${set('qty')} />
           ${errors.qty && html`<span class="error">${errors.qty}</span>`}</label>
-        <label>Цена за 1 шт, ¥<input inputmode="decimal" value=${f.unitFen} onInput=${set('unitFen')} placeholder="0,00" />
+        <label>Цена за 1 шт, ¥<input inputmode="decimal" value=${f.paidFen ? centsToInput(m.unitFen) : f.unitFen} disabled=${!!f.paidFen} onInput=${set('unitFen')} placeholder="0,00" />
           ${errors.unitFen && html`<span class="error">${errors.unitFen}</span>`}</label>
       </div>
+      <label>Оплачено всего (实付), ¥ — если заполнено, главнее цены за штуку
+        <input inputmode="decimal" value=${f.paidFen} onInput=${set('paidFen')} placeholder="необязательно" />
+        ${errors.paidFen && html`<span class="error">${errors.paidFen}</span>`}</label>
       <div class="money-box">
         <div>Итого: <b>${fmtCny(m.totalFen)}</b></div>
         <div>Курс закупки: 1 ¥ = ${formatRate(p.rateMicro)} BYN</div>

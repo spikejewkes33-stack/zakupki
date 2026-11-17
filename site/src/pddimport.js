@@ -1,0 +1,337 @@
+// Разбор файла «Команды» iPhone: каждое нажатие Кнопки действия дописывает блок
+//   ===PDD===
+//   <дата и время нажатия>
+//   <текст, распознанный со скриншота PDD>
+// Экран заказа (订单详情) → карточка товара; экран логистики (查看物流) → трек к карточке по номеру заказа.
+// Ничего не додумывается: что не распознано — показывается пользователю.
+import { clientForTime } from './order.js';
+
+export const BLOCK_MARK = '===PDD===';
+
+// Короткий устойчивый отпечаток блока (FNV-1a): повторный «Забрать» того же файла узнаёт уже разобранное.
+export function blockId(time, text) {
+  let h = 0x811c9dc5;
+  const s = `${time || ''}\n${text}`;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return `b${(h >>> 0).toString(36)}${s.length.toString(36)}`;
+}
+
+// Дата нажатия: ISO 8601 из «Форматировать дату» или «17.11.2026, 14:05:33».
+export function parseTime(line) {
+  const s = String(line || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) {
+    const t = Date.parse(s);
+    return Number.isNaN(t) ? null : new Date(t).toISOString();
+  }
+  const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(s);
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5], +(m[6] || 0)).toISOString();
+  return null;
+}
+
+// Метка ищется в любом месте строки: если в «Команде» выключили «Новую строку», блоки не слипаются.
+export function splitBlocks(fileText) {
+  const parts = String(fileText || '').replace(/\r\n?/g, '\n').split(BLOCK_MARK).slice(1);
+  return parts.map((part) => {
+    const raw = part.split('\n');
+    let i = 0;
+    while (i < raw.length && !raw[i].trim()) i++;
+    const time = parseTime(raw[i]);
+    const body = (time ? raw.slice(i + 1) : raw.slice(i)).map((l) => l.trim()).filter(Boolean);
+    const text = body.join('\n');
+    return { id: blockId(time, text), time, lines: body, text };
+  }).filter((b) => b.lines.length);
+}
+
+// ——— Шаблоны ———
+// Распознавание может вставить пробел или длинное тире в номер: «261116 — 3000 0000…». Чиним перед поиском.
+function fixNumbers(line) {
+  return String(line)
+    .replace(/[—–－‐‑]/g, '-')
+    .replace(/(\d)\s*-\s*(\d)/g, '$1-$2')
+    .replace(/(\d)\s+(?=\d)/g, '$1');
+}
+const ORDER_NO = /(\d{6}-\d{10,20})/;
+const PRICE_LINE = /^(?:券后|到手价|大促价)?\s*[￥¥]\s*\d+(?:[.,]\s?\d{1,2})?$/;
+// «×3», «x3», «×l» (буква l вместо 1); бывает в одной строке с ценой: «￥19.9 ×3».
+const QTY_ANY = /(?:^|\s)[×xX✕*]\s*([\dlI|]{1,4})$/;
+const qtyOf = (line) => {
+  const m = QTY_ANY.exec(line);
+  return m ? Number(m[1].replace(/[lI|]/g, '1')) || 1 : null;
+};
+const isQtyLine = (l) => qtyOf(l) != null && /^(?:[￥¥]\s*[\d.,\s]+)?\s*[×xX✕*]/.test(l);
+const STOP_BEFORE = /展开|号码保护|收货地址|签收|送达|快件|\d{3}\*{3,4}\d{4}|^\d{1,2}:\d{2}|^LTE|^5G|^4G/;
+const END_ITEM = /7天无理由|分享商品|联系商家|申请退款|退货包运费|极速退款|假一赔|晚发必赔|退款/;
+const SHOP_HINT = /店$|旗舰|专营|官方|工厂|商行|百货|超市|小铺|好物|批发|自营/;
+const CARRIER = /((?:[一-龥]{2,8}?(?:快递|速递|快运|物流|速运|邮政|特快))|EMS)\s*[:：]\s*([A-Za-z0-9][A-Za-z0-9 ]{6,40}[A-Za-z0-9])/;
+
+const CARRIER_LAT = [
+  ['中通', 'ZTO'], ['韵达', 'Yunda'], ['极兔', 'J&T'], ['申通', 'STO'], ['圆通', 'YTO'], ['顺丰', 'SF'],
+  ['邮政', 'China Post'], ['EMS', 'EMS'], ['京东', 'JD'], ['德邦', 'Deppon'], ['百世', 'Best'], ['丹鸟', 'Danniao'],
+];
+export function carrierLabel(cn) {
+  const hit = CARRIER_LAT.find(([k]) => cn.includes(k));
+  return hit ? `${cn} (${hit[1]})` : cn;
+}
+
+function findOrderNo(lines) {
+  const fixed = lines.map(fixNumbers);
+  let no = '';
+  for (const l of fixed) if (/订单(?:编)?号/.test(l) && ORDER_NO.test(l)) { no = ORDER_NO.exec(l)[1]; break; }
+  if (!no) for (const l of fixed) if (ORDER_NO.test(l)) { no = ORDER_NO.exec(l)[1]; break; }
+  return no;
+}
+// Номер заказа PDD: 6 цифр даты, дефис, 15 цифр. Другая длина — вероятно, распознано с ошибкой.
+const orderNoDoubt = (no) => (no && !/^\d{6}-\d{15}$/.test(no) ? `номер заказа ${no} необычной длины — сверьте` : '');
+
+// «45.6», «45. 6», «1,299.00», «45,6» → фэни.
+const toFen = (s) => {
+  let t = String(s).replace(/\s+/g, '');
+  if (t.includes(',') && t.includes('.')) t = t.replace(/,/g, '');
+  else t = t.replace(',', '.');
+  const [i, f = ''] = t.split('.');
+  return Number(i) * 100 + Number(f.padEnd(2, '0').slice(0, 2));
+};
+const MONEY = '(\\d+(?:,\\d{3})*(?:[.,]\\s?\\d{1,2})?)';
+
+// Экран заказа: название, вариант, 实付, ×N, номер заказа.
+export function parseOrder(lines) {
+  const doubts = [];
+  const orderNo = findOrderNo(lines);
+  const paidIdx = lines.findIndex((l) => /实付/.test(l));
+  let paidFen = null;
+  if (paidIdx >= 0) {
+    const m = new RegExp(`实付[^\\d￥¥]{0,6}[￥¥]?\\s*${MONEY}`).exec(lines[paidIdx])
+      || new RegExp(`^[￥¥]?\\s*${MONEY}`).exec(lines[paidIdx + 1] || '')
+      || new RegExp(`^[￥¥]\\s*${MONEY}$`).exec(lines[paidIdx - 1] || '');
+    if (m) paidFen = toFen(m[1]);
+  }
+  if (paidFen == null) doubts.push('нет суммы «实付»');
+  const limit = paidIdx >= 0 ? paidIdx : lines.length;
+
+  // Количество «×N» до строки 实付; цена «¥28.9» рядом с ним — цена до скидки, её не берём.
+  const qtyIdx = [];
+  for (let i = 0; i < limit; i++) if (isQtyLine(lines[i])) qtyIdx.push(i);
+  const qi = qtyIdx.length ? qtyIdx[qtyIdx.length - 1] : -1;
+  let qty = 1;
+  if (qi >= 0) qty = qtyOf(lines[qi]);
+  else doubts.push('не нашёл количество «×N», поставил 1');
+  if (qtyIdx.length > 1) doubts.push('похоже, в заказе несколько товаров — проверьте название, количество и сумму');
+
+  let pi = -1;
+  const anchor = qi >= 0 ? qi : limit;
+  for (let i = anchor; i >= Math.max(0, anchor - 4); i--) if (PRICE_LINE.test(lines[i]) || (i === qi && /[￥¥]/.test(lines[i]))) { pi = i; break; }
+  let priceFen = null;
+  if (pi >= 0) {
+    const m = new RegExp(`[￥¥]\\s*${MONEY}`).exec(lines[pi]);
+    if (m) priceFen = toFen(m[1]);
+  }
+  // Сверка: оплачено не больше цены × количество и не меньше её десятой части (скидки бывают, но не в 10 раз).
+  if (paidFen != null && priceFen) {
+    const full = priceFen * qty;
+    if (paidFen > full * 1.05 || paidFen < full / 10) doubts.push(`оплачено ${paidFen / 100} ¥ при цене ${priceFen / 100} ¥ × ${qty} — проверьте сумму`);
+  }
+
+  // Начало блока товара: после строки адреса/доставки («展开», телефон со звёздочками).
+  const from = pi >= 0 ? Math.min(pi, anchor) : anchor;
+  let start = 0;
+  for (let i = from - 1; i >= 0; i--) if (STOP_BEFORE.test(lines[i])) { start = i + 1; break; }
+  const head = lines.slice(start, anchor).filter((l) => !PRICE_LINE.test(l) && !isQtyLine(l) && !END_ITEM.test(l));
+  let shop = '';
+  let titleLines = head;
+  if (head.length >= 3 || (head.length === 2 && SHOP_HINT.test(head[0]))) {
+    shop = head[0];
+    titleLines = head.slice(1);
+  }
+  const nameCn = titleLines.join('').trim();
+  if (!nameCn) doubts.push('не нашёл название');
+
+  // Вариант: строки после «×N» до «7天无理由…».
+  let variant = '';
+  if (qi >= 0) {
+    const out = [];
+    for (let i = qi + 1; i < limit && out.length < 3; i++) {
+      if (END_ITEM.test(lines[i]) || /^共优惠|^实付|^商品总价|^运费/.test(lines[i])) break;
+      if (!PRICE_LINE.test(lines[i])) out.push(lines[i]);
+    }
+    variant = out.join(' ');
+  }
+  if (!orderNo) doubts.push('нет номера заказа (订单号) — прокрутите экран, чтобы он был виден, и снимите ещё раз; без него трек не привяжется');
+  const nd = orderNoDoubt(orderNo);
+  if (nd) doubts.push(nd);
+  return { kind: 'order', orderNo, nameCn, shop, variant, qty, paidFen, priceFen, doubts };
+}
+
+// Статус по словам на экране логистики (до ленты рекомендаций).
+function logisticsStatus(lines) {
+  const t = lines.join('\n');
+  if (/已签收/.test(t)) return { status: 6, statusWord: '已签收' };
+  const m = /派件中|派送中|运输中|正在发往|已到达|待取件/.exec(t);
+  if (m) return { status: 5, statusWord: m[0] };
+  if (/已揽收|已发货/.test(t)) return { status: 4, statusWord: '已揽收' };
+  return { status: 4, statusWord: '' };
+}
+
+// Экран логистики: перевозчик и трек («韵达快递：4658…»), номер заказа («订单编号：…»).
+// Не трек: телефон курьера («快递员：…», «联系快递：138…», «电话»).
+export function parseLogistics(lines) {
+  let carrier = '';
+  let track = '';
+  for (const l of lines) {
+    const m = CARRIER.exec(l);
+    if (!m || /电话|快递员|联系|客服/.test(l.slice(0, m.index + m[1].length))) continue;
+    const tr = m[2].replace(/\s+/g, '').toUpperCase();
+    if (tr.length < 8) continue;
+    carrier = m[1];
+    track = tr;
+    break;
+  }
+  if (!track) {
+    const c = lines.find((l) => /^物流公司[:：]/.test(l));
+    const n = lines.find((l) => /^(?:物流|运)单号[:：]/.test(l));
+    if (n) {
+      track = ((/[:：]\s*([A-Za-z0-9][A-Za-z0-9 ]{6,40}[A-Za-z0-9])/.exec(n) || [])[1] || '').replace(/\s+/g, '').toUpperCase();
+      carrier = c ? c.replace(/^物流公司[:：]\s*/, '') : '';
+    }
+  }
+  const orderNo = findOrderNo(lines);
+  const doubts = [];
+  if (!orderNo) doubts.push('нет номера заказа — привяжу по треку, если он уже есть в карточке');
+  const nd = orderNoDoubt(orderNo);
+  if (nd) doubts.push(nd);
+  return { kind: 'logistics', carrier: carrier ? carrierLabel(carrier) : '', track, orderNo, ...logisticsStatus(lines), doubts };
+}
+
+export function classify(lines) {
+  const t = lines.join('\n');
+  // Экран заказа узнаём по «实付»: даже если на нём мелькнёт строка перевозчика, это заказ.
+  if (/实付/.test(t)) return parseOrder(lines);
+  const hasTrack = lines.some((l) => CARRIER.test(l)) || /物流单号[:：]/.test(t);
+  if (hasTrack) return parseLogistics(lines);
+  if (/订单号/.test(t) && lines.some(isQtyLine)) return parseOrder(lines);
+  return { kind: 'unknown', doubts: ['не похоже ни на экран заказа, ни на экран логистики — возможно, снимок попал на переход между экранами'] };
+}
+
+const norm = (s) => String(s || '').replace(/\s+/g, '').toUpperCase();
+
+// План: что добавить, что обновить, что не понято. Чистая функция — проверяется тестами.
+// ctx: { items, purchases (Map), activePurchaseId, importedIds (Set), pending (массив треков без карточки), translations }
+export function buildPlan(blocks, ctx) {
+  const plan = { newItems: [], updates: [], tracks: [], pending: [], unknown: [], skipped: 0 };
+  const live = ctx.items.filter((x) => !x.deleted);
+  const byOrder = (no) => live.find((x) => no && norm(x.pddOrderNo) === norm(no));
+  const byTrack = (tr) => live.find((x) => tr && norm(x.track) === norm(tr));
+  const open = [...ctx.purchases.values()].filter((p) => !p.archived && !p.deleted);
+  const seenBlocks = new Set();
+
+  // Клиент по времени нажатия. Если время попало в сессии нескольких закупок (в старой забыли «Завершить»),
+  // главнее активная закупка, затем — сессия, начатая позже.
+  const whereAndWho = (time) => {
+    const hits = [];
+    for (const p of open) {
+      const c = time ? clientForTime(p.sessions, time) : null;
+      if (c) {
+        const s = [...(p.sessions || [])].reverse().find((x) => x.clientId === c && Date.parse(x.startedAt) <= Date.parse(time));
+        hits.push({ purchaseId: p.id, clientId: c, by: 'time', start: s ? Date.parse(s.startedAt) : 0, active: p.id === ctx.activePurchaseId });
+      }
+    }
+    hits.sort((a, b) => b.active - a.active || b.start - a.start);
+    if (hits.length) return { ...hits[0], doubt: hits.length > 1 ? 'время подходит к нескольким закупкам — проверьте клиента' : '' };
+    return { purchaseId: ctx.activePurchaseId || open[0]?.id || null, clientId: null, by: 'none', doubt: '' };
+  };
+
+  const parsed = [];
+  for (const b of blocks) {
+    if (ctx.importedIds.has(b.id) || seenBlocks.has(b.id)) {
+      plan.skipped += 1;
+      continue;
+    }
+    seenBlocks.add(b.id);
+    parsed.push({ block: b, r: classify(b.lines) });
+  }
+
+  // 1. Экраны заказа → новые карточки или дополнение существующих.
+  for (const { block, r } of parsed) {
+    if (r.kind !== 'order') continue;
+    if (!r.orderNo && !r.nameCn) {
+      plan.unknown.push({ blockId: block.id, time: block.time, preview: block.lines.slice(0, 6), doubts: r.doubts });
+      continue;
+    }
+    const exist = byOrder(r.orderNo);
+    if (exist) {
+      const patch = {};
+      if (!exist.nameCn && r.nameCn) patch.nameCn = r.nameCn;
+      if (!exist.variant && r.variant) patch.variant = r.variant;
+      if (exist.paidFen == null && exist.unitFen == null && r.paidFen != null) patch.paidFen = r.paidFen;
+      plan.updates.push({ blockId: block.id, itemId: exist.id, patch, what: Object.keys(patch).length ? 'дополню карточку' : 'уже есть' });
+      continue;
+    }
+    // Без номера заказа дубль узнаём по тому же названию и сумме с разницей во времени до 2 минут (двойное нажатие).
+    const near = (n) => !r.orderNo && !n.pddOrderNo && n.nameCn === r.nameCn && n.paidFen === r.paidFen
+      && Math.abs(Date.parse(n.time || 0) - Date.parse(block.time || 0)) <= 120000;
+    const dup = plan.newItems.find((n) => (r.orderNo && n.pddOrderNo === r.orderNo) || near(n));
+    if (dup) {
+      dup.extraBlocks = [...(dup.extraBlocks || []), block.id];
+      plan.skipped += 1;
+      continue;
+    }
+    const w = whereAndWho(block.time);
+    plan.newItems.push({
+      blockId: block.id, time: block.time, purchaseId: w.purchaseId, clientId: w.clientId, clientBy: w.by,
+      nameCn: r.nameCn, name: ctx.translations?.[r.nameCn] || '', variant: r.variant, shop: r.shop,
+      qty: r.qty, paidFen: r.paidFen, pddOrderNo: r.orderNo, doubts: w.doubt ? [...r.doubts, w.doubt] : r.doubts,
+      track: '', carrier: '', status: 1,
+    });
+  }
+
+  // 2. Экраны логистики → трек к карточке (новой из этого же файла или существующей), иначе — ждать карточку.
+  const attach = (t) => {
+    const n = plan.newItems.find((x) => t.orderNo && x.pddOrderNo === t.orderNo);
+    if (n) {
+      Object.assign(n, { track: t.track, carrier: t.carrier, status: Math.max(n.status, t.status), extraBlocks: [...(n.extraBlocks || []), t.blockId] });
+      return { newBlockId: n.blockId };
+    }
+    const ex = byOrder(t.orderNo) || (!t.orderNo && byTrack(t.track));
+    if (ex) {
+      const patch = {};
+      const replaces = ex.track && norm(ex.track) !== norm(t.track) ? ex.track : '';
+      if (norm(ex.track) !== norm(t.track)) patch.track = t.track;
+      if (!ex.carrier && t.carrier) patch.carrier = t.carrier;
+      if ((ex.status || 1) < t.status) patch.status = t.status;
+      // Заказ пришёл второй посылкой: в карточке один трек (ТЗ), прежний не теряем — пишем в заметку.
+      if (replaces) patch.note = `${ex.note ? `${ex.note}\n` : ''}Прежний трек: ${ex.track}${ex.carrier ? ` (${ex.carrier})` : ''}`;
+      plan.tracks.push({ ...t, itemId: ex.id, patch, replaces });
+      return { trackBlockId: t.blockId };
+    }
+    return null;
+  };
+  for (const { block, r } of parsed) {
+    if (r.kind === 'unknown') {
+      plan.unknown.push({ blockId: block.id, time: block.time, preview: block.lines.slice(0, 6), doubts: r.doubts });
+      continue;
+    }
+    if (r.kind !== 'logistics') continue;
+    if (!r.track) {
+      plan.unknown.push({ blockId: block.id, time: block.time, preview: block.lines.slice(0, 6), doubts: ['экран логистики без трека'] });
+      continue;
+    }
+    const t = { blockId: block.id, time: block.time, orderNo: r.orderNo, track: r.track, carrier: r.carrier, status: r.status, statusWord: r.statusWord };
+    if (!attach(t)) plan.pending.push(t);
+  }
+  // 3. Треки, ждавшие карточку с прошлых раз.
+  plan.pendingResolved = [];
+  for (const t of ctx.pending || []) {
+    if (plan.pending.some((x) => x.orderNo === t.orderNo && x.track === t.track)) continue;
+    const via = attach(t);
+    if (via) plan.pendingResolved.push({ ...t, via });
+  }
+  return plan;
+}
+
+// Цена из 实付: за единицу = сумма / количество (может быть дробной в фэнях — храним сумму целиком).
+export function unitFromPaid(paidFen, qty) {
+  if (paidFen == null) return null;
+  return Math.round(paidFen / (qty || 1));
+}

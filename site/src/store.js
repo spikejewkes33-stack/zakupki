@@ -5,6 +5,7 @@ import { diff, todayLocal, ITEM_FIELDS, PURCHASE_FIELDS, CLIENT_FIELDS } from '.
 import { startSession as startS, finishSession as finishS } from './order.js';
 import { pairId } from './opis.js';
 import { DEFAULT_ROUNDING } from './money.js';
+import { emptyItem } from './model.js';
 
 export const APP_ID = 'pdd-zakupki';
 export const BACKUP_VERSION = 1;
@@ -19,6 +20,8 @@ export const state = {
   events: [],
   docs: [],
   settings: { id: 'settings', activePurchaseId: null, lastBackupAt: null },
+  // «Забрать» из «Команды»: разобранные блоки, треки без карточки, запомненные переводы названий.
+  importInfo: { id: 'import', blockIds: [], pending: [], translations: {} },
   deviceId: null,
 };
 
@@ -56,6 +59,7 @@ export async function load() {
   state.docs = docs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const m = new Map(meta.map((x) => [x.id, x]));
   state.settings = m.get('settings') || state.settings;
+  state.importInfo = { id: 'import', blockIds: [], pending: [], translations: {}, ...(m.get('import') || {}) };
   let device = m.get('device');
   if (!device) {
     device = { id: 'device', value: uuid() };
@@ -145,8 +149,13 @@ export const removeClientFromPurchase = (pid, cid) =>
   }, 'remove-client');
 
 // Порядок оформления: «Оформляю клиента» и «Завершить заказы клиента».
-export const startOrdering = (pid, cid) =>
-  commit('purchases', pid, (p) => ({ clientIds: withClient(p, cid), sessions: startS(p, cid, nowIso(), uuid()) }), 'start-client');
+export async function startOrdering(pid, cid) {
+  // Забытое «Завершить» в другой закупке закрываем этим же моментом: одно время — один клиент.
+  for (const other of state.purchases.values()) {
+    if (other.id !== pid && (other.sessions || []).some((s) => !s.endedAt)) await finishOrdering(other.id);
+  }
+  return commit('purchases', pid, (p) => ({ clientIds: withClient(p, cid), sessions: startS(p, cid, nowIso(), uuid()) }), 'start-client');
+}
 export const finishOrdering = (pid) => commit('purchases', pid, (p) => ({ sessions: finishS(p, nowIso()) }), 'finish-client');
 
 // ——— Опись: решения пользователя ———
@@ -188,6 +197,9 @@ async function ensureClientInPurchase(pid, cid) {
 
 export async function saveItem(item) {
   const before = item.id ? state.items.get(item.id) : null;
+  if (item.nameCn && item.name && state.importInfo.translations[item.nameCn] !== item.name) {
+    await saveImportInfo({ translations: { ...state.importInfo.translations, [item.nameCn]: item.name } });
+  }
   await ensureClientInPurchase(item.purchaseId, item.clientId);
   const action = !before ? 'create' : before.clientId !== item.clientId ? 'move' : 'update';
   return commit('items', item.id || null, (cur) => {
@@ -207,6 +219,52 @@ export async function moveItem(id, clientId) {
   await ensureClientInPurchase(state.items.get(id).purchaseId, clientId);
   return commit('items', id, { clientId }, 'move');
 }
+
+// ——— «Забрать» из «Команды» iPhone ———
+export function saveImportInfo(patch) {
+  return serial(async () => {
+    state.importInfo = { ...state.importInfo, ...patch, id: 'import' };
+    await db.put('meta', state.importInfo);
+    notify();
+  });
+}
+
+// plan — из buildPlan (pddimport.js), уже поправленный пользователем на экране сводки.
+export async function applyImport(plan) {
+  const done = [];
+  let created = 0;
+  for (const n of plan.newItems) {
+    if (n.skip) continue;
+    const day = n.time ? new Date(Date.parse(n.time) - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10) : todayLocal();
+    await saveItem({
+      ...emptyItem(n.purchaseId, n.clientId),
+      name: n.name || '', nameCn: n.nameCn, variant: n.variant, qty: n.qty, paidFen: n.paidFen, unitFen: null,
+      pddOrderNo: n.pddOrderNo, track: n.track, carrier: n.carrier, status: n.status, orderDate: day,
+      note: n.shop ? `Магазин: ${n.shop}` : '', importBlockId: n.blockId,
+    });
+    created += 1;
+    done.push(n.blockId, ...(n.extraBlocks || []).filter((b) => !(plan.pendingResolved || []).some((t) => t.blockId === b)));
+  }
+  for (const u of plan.updates) {
+    if (Object.keys(u.patch).length) await commit('items', u.itemId, u.patch, 'import');
+    done.push(u.blockId);
+  }
+  for (const t of plan.tracks) {
+    if (t.skip) continue;
+    if (Object.keys(t.patch).length) await commit('items', t.itemId, t.patch, 'import');
+    done.push(t.blockId);
+  }
+  for (const t of plan.pending) done.push(t.blockId);
+  // Трек, ждавший карточку, убираем из «ждут» только если его действительно записали (галочки не сняты).
+  const applied = (t) => (t.via?.newBlockId ? plan.newItems.some((n) => n.blockId === t.via.newBlockId && !n.skip)
+    : plan.tracks.some((x) => x.blockId === t.via?.trackBlockId && !x.skip));
+  const resolved = new Set((plan.pendingResolved || []).filter(applied).map((t) => t.blockId));
+  const pending = [...state.importInfo.pending.filter((t) => !resolved.has(t.blockId)), ...plan.pending];
+  await saveImportInfo({ blockIds: [...new Set([...state.importInfo.blockIds, ...done])], pending });
+  return { created, tracks: plan.tracks.filter((t) => !t.skip && Object.keys(t.patch).length).length + plan.newItems.filter((n) => !n.skip && n.track).length };
+}
+
+export const dropPending = (blockId) => saveImportInfo({ pending: state.importInfo.pending.filter((t) => t.blockId !== blockId) });
 
 // Фото: сжатая картинка хранится отдельно, в карточке — только её id.
 export async function savePhoto(blob) {

@@ -38,7 +38,7 @@ export function HistoryScreen() {
 
 const ENT = { item: 'Товар', purchase: 'Закупка', client: 'Клиент' };
 function entityName(e) {
-  if (e.entity === 'item') return S.state.items.get(e.entityId)?.name || '';
+  if (e.entity === 'item') { const it = S.state.items.get(e.entityId); return it ? it.name || it.nameCn || '' : ''; }
   if (e.entity === 'purchase') return S.state.purchases.get(e.entityId)?.name || '';
   return S.state.clients.get(e.entityId)?.name || '';
 }

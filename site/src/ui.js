@@ -2,7 +2,7 @@
 import { html, useState, useEffect, useRef } from '../vendor/preact-htm.js';
 import * as S from './store.js';
 import { fmtByn, fmtCny, itemMoney } from './money.js';
-import { statusShort } from './model.js';
+import { statusShort, itemTitle } from './model.js';
 import { saveFile } from './export.js';
 
 export { html, useState, useEffect, useRef };
@@ -40,10 +40,10 @@ export function StatusChip({ status }) {
 export function ItemRow({ item, showClient, showPurchase }) {
   const p = S.purchaseById(item.purchaseId);
   const m = itemMoney(item, p);
-  const variant = [item.color, item.size, item.kit].filter(Boolean).join(' · ');
+  const variant = [item.color, item.size, item.kit, item.variant].filter(Boolean).join(' · ');
   return html`<a class="row item-row" href=${`#/item/${item.id}`}>
     <div class="row-main">
-      <div class="row-title">${item.name}${item.photoId ? html` <span class="muted" title="есть фото">📷</span>` : ''}</div>
+      <div class="row-title">${itemTitle(item)}${!item.name && item.nameCn ? html` <span class="chip s2">нет рус.</span>` : ''}${item.photoId ? html` <span class="muted" title="есть фото">📷</span>` : ''}</div>
       ${variant && html`<div class="row-sub">${variant}</div>`}
       ${showClient && html`<div class="row-sub">${S.clientName(item.clientId)}${showPurchase ? ` · ${p?.name || ''}` : ''}</div>`}
       <div class="row-sub">

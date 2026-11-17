@@ -85,8 +85,9 @@ export function cnyToByn(fen, rateMicro, rounding = DEFAULT_ROUNDING) {
 // дают 45 BYN, а не 0 (если бы округлялась цена за штуку).
 export function itemMoney(item, purchase) {
   const qty = item.qty > 0 ? item.qty : 1;
-  const unitFen = item.unitFen ?? null;
-  const totalFen = unitFen == null ? null : unitFen * qty;
+  // Если известна оплаченная сумма (实付 из PDD), она главнее цены за штуку: скидки уже учтены.
+  const totalFen = item.paidFen != null ? item.paidFen : item.unitFen == null ? null : item.unitFen * qty;
+  const unitFen = item.paidFen != null ? Math.round(item.paidFen / qty) : (item.unitFen ?? null);
   const totalKop = cnyToByn(totalFen, purchase?.rateMicro ?? null, purchase?.rounding);
   const unitKop = averageKop(totalKop, qty);
   const zero = totalKop === 0 && totalFen > 0; // округлилось до нуля — надо предупредить

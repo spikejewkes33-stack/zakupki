@@ -19,6 +19,9 @@ export function todayLocal() {
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 }
 
+// Название для показа: русское, а если его ещё нет — из PDD.
+export const itemTitle = (it) => it.name || it.nameCn || '(без названия)';
+
 const norm = (s) => String(s || '').replace(/\s+/g, '').toUpperCase();
 
 // Поля карточки товара (ТЗ п. 5). Обязательны только название и клиент.
@@ -27,6 +30,9 @@ export function emptyItem(purchaseId, clientId) {
     purchaseId,
     clientId: clientId || '',
     name: '',
+    nameCn: '',
+    variant: '',
+    paidFen: null,
     photoId: null,
     url: '',
     orderDate: todayLocal(),
@@ -48,19 +54,26 @@ export function validateItem(form, allItems, selfId) {
   const errors = {};
   const warnings = [];
   const name = String(form.name || '').trim();
-  if (!name) errors.name = 'Нужно название товара';
+  const nameCn = String(form.nameCn || '').trim();
+  if (!name && !nameCn) errors.name = 'Нужно название товара';
   if (!form.clientId) errors.clientId = 'Нужно выбрать клиента';
   const qty = Number(String(form.qty ?? '1').trim() || 1);
   if (!Number.isInteger(qty) || qty < 1 || qty > 9999) errors.qty = 'Количество — целое число от 1';
   const unitFen = typeof form.unitFen === 'number' || form.unitFen === null ? form.unitFen : parseCents(form.unitFen);
   if (Number.isNaN(unitFen)) errors.unitFen = priceWarning(unitFen);
   else if (priceWarning(unitFen)) warnings.push(priceWarning(unitFen));
+  // «Оплачено всего» (实付) — если указано, сумма строки берётся из него, цена за штуку = сумма / количество.
+  const paidFen = typeof form.paidFen === 'number' || form.paidFen == null ? (form.paidFen ?? null) : parseCents(form.paidFen);
+  if (Number.isNaN(paidFen)) errors.paidFen = 'Сумма записана неверно: только цифры и запятая, до 2 знаков.';
 
   const item = {
     ...form,
     name,
+    nameCn,
+    variant: String(form.variant || '').trim(),
     qty: errors.qty ? 1 : qty,
     unitFen: Number.isNaN(unitFen) ? null : unitFen,
+    paidFen: Number.isNaN(paidFen) ? null : paidFen,
     pddOrderNo: String(form.pddOrderNo || '').trim(),
     track: String(form.track || '').replace(/\s+/g, '').toUpperCase(),
     carrier: String(form.carrier || '').trim(),
@@ -80,11 +93,11 @@ export function duplicateWarnings(item, allItems, selfId) {
   const others = allItems.filter((x) => x.id !== selfId && !x.deleted);
   if (item.pddOrderNo) {
     const d = others.find((x) => norm(x.pddOrderNo) === norm(item.pddOrderNo));
-    if (d) out.push(`Номер заказа ${item.pddOrderNo} уже есть у товара «${d.name}». Один заказ — одна карточка.`);
+    if (d) out.push(`Номер заказа ${item.pddOrderNo} уже есть у товара «${itemTitle(d)}». Один заказ — одна карточка.`);
   }
   if (item.track) {
     const d = others.find((x) => norm(x.track) === norm(item.track));
-    if (d) out.push(`Трек ${item.track} уже есть у товара «${d.name}». Один товар — один трек.`);
+    if (d) out.push(`Трек ${item.track} уже есть у товара «${itemTitle(d)}». Один товар — один трек.`);
   }
   return out;
 }
@@ -112,7 +125,7 @@ export function totals(items, purchaseById) {
 export function matchItem(it, query, clientName) {
   const q = String(query || '').trim().toLowerCase().replace(/ё/g, 'е');
   if (!q) return true;
-  const hay = [it.name, it.color, it.size, it.kit, it.pddOrderNo, it.track, it.carrier, it.note, clientName]
+  const hay = [it.name, it.nameCn, it.variant, it.color, it.size, it.kit, it.pddOrderNo, it.track, it.carrier, it.note, clientName]
     .join(' ')
     .toLowerCase()
     .replace(/ё/g, 'е');
@@ -123,7 +136,7 @@ export function sortItems(items, by) {
   const arr = [...items];
   if (by === 'status') arr.sort((a, b) => a.status - b.status || (a.seq ?? 0) - (b.seq ?? 0));
   else if (by === 'dateDesc') arr.sort((a, b) => String(b.orderDate).localeCompare(String(a.orderDate)) || (b.seq ?? 0) - (a.seq ?? 0));
-  else if (by === 'name') arr.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  else if (by === 'name') arr.sort((a, b) => itemTitle(a).localeCompare(itemTitle(b), 'ru'));
   else arr.sort((a, b) => String(a.orderDate).localeCompare(String(b.orderDate)) || (a.seq ?? 0) - (b.seq ?? 0));
   return arr;
 }
@@ -139,12 +152,12 @@ export function diff(before, after, fields) {
   return ch;
 }
 
-export const ITEM_FIELDS = ['name', 'clientId', 'photoId', 'url', 'orderDate', 'pddOrderNo', 'color', 'size', 'kit', 'qty', 'unitFen', 'status', 'track', 'carrier', 'note', 'deleted'];
+export const ITEM_FIELDS = ['name', 'nameCn', 'variant', 'paidFen', 'clientId', 'photoId', 'url', 'orderDate', 'pddOrderNo', 'color', 'size', 'kit', 'qty', 'unitFen', 'status', 'track', 'carrier', 'note', 'deleted'];
 export const PURCHASE_FIELDS = ['name', 'startDate', 'endDate', 'rateMicro', 'rounding', 'archived', 'clientIds', 'sessions', 'opis', 'deleted'];
 export const CLIENT_FIELDS = ['name', 'contact', 'note', 'deleted'];
 
 export const FIELD_LABELS = {
-  name: 'Название', clientId: 'Клиент', photoId: 'Фото', url: 'Ссылка', orderDate: 'Дата заказа', pddOrderNo: 'Номер заказа',
+  name: 'Название', nameCn: 'Название из PDD', variant: 'Вариант', paidFen: 'Оплачено ¥', clientId: 'Клиент', photoId: 'Фото', url: 'Ссылка', orderDate: 'Дата заказа', pddOrderNo: 'Номер заказа',
   color: 'Цвет', size: 'Размер', kit: 'Комплектация', qty: 'Количество', unitFen: 'Цена ¥', status: 'Статус', track: 'Трек',
   carrier: 'Перевозчик', note: 'Заметка', deleted: 'Удалён', startDate: 'Дата закупки', endDate: 'Дата завершения',
   rateMicro: 'Курс', rounding: 'Округление', archived: 'В архиве', clientIds: 'Клиенты', sessions: 'Порядок оформления',
