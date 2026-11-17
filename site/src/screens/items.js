@@ -137,8 +137,7 @@ export function ItemForm({ id, query }) {
       <label>Название по-русски (для описи)${f.nameCn ? '' : ' *'}<input value=${f.name} onInput=${set('name')} placeholder="например, Шарф" autocomplete="off" />
         ${errors.name && html`<span class="error">${errors.name}</span>`}
         ${f.nameCn && !f.name && html`<span class="hint warn-text">Нет русского названия — в описи будет предупреждение.</span>`}</label>
-      ${(f.nameCn || existing?.importBlockId) && html`<label>Название из PDD<textarea rows="2" value=${f.nameCn} onInput=${set('nameCn')}></textarea></label>`}
-      ${(f.variant || f.nameCn) && html`<label>Вариант из PDD<input value=${f.variant} onInput=${set('variant')} /></label>`}
+
       <div class="grid2">
         <label>Цвет<input value=${f.color} onInput=${set('color')} /></label>
         <label>Размер<input value=${f.size} onInput=${set('size')} /></label>
@@ -160,10 +159,7 @@ export function ItemForm({ id, query }) {
         ${m.zero && html`<div class="warn-text">При этом округлении товар стоит 0 BYN.</div>`}
       </div>
       <label>Статус<select value=${f.status} onChange=${set('status')}>${STATUSES.map((s) => html`<option value=${s.id}>${s.id}. ${s.label}</option>`)}</select></label>
-      <div class="grid2">
-        <label>Дата заказа<input type="date" value=${f.orderDate} onInput=${set('orderDate')} /></label>
-        <label>Номер заказа PDD<input value=${f.pddOrderNo} onInput=${set('pddOrderNo')} placeholder="можно позже" autocomplete="off" /></label>
-      </div>
+      <label>Дата заказа<input type="date" value=${f.orderDate} onInput=${set('orderDate')} /></label>
       <div class="grid2">
         <label>Трек-номер<input value=${f.track} onInput=${set('track')} placeholder="появится после отправки" autocomplete="off" /></label>
         <label>Транспортная компания<input value=${f.carrier} onInput=${set('carrier')} /></label>
@@ -177,6 +173,13 @@ export function ItemForm({ id, query }) {
         ${f.photoId && html`<button type="button" class="btn small" onClick=${() => setF({ ...f, photoId: null })}>Убрать фото</button>`}
       </div>
       <label>Заметка<textarea rows="2" value=${f.note} onInput=${set('note')}></textarea></label>
+      <details class="pdd-details" open=${!!errors.pddOrderNo}>
+        <summary>Из PDD (для приложения)</summary>
+        <p class="muted small">Номер заказа нужен, чтобы трек со снимка сам попал в эту карточку.</p>
+        <label>Номер заказа PDD<input value=${f.pddOrderNo} onInput=${set('pddOrderNo')} placeholder="можно не заполнять" autocomplete="off" /></label>
+        <label>Название из PDD<textarea rows="2" value=${f.nameCn} onInput=${set('nameCn')}></textarea></label>
+        <label>Вариант из PDD<input value=${f.variant} onInput=${set('variant')} /></label>
+      </details>
       <div class="muted small">Дата закупки: ${dateRu(p.startDate)} · ${p.name}</div>
       ${warn.length > 0 && html`<div class="card warn">${warn.map((w) => html`<div>${w}</div>`)}<div><b>Нажмите «Сохранить» ещё раз, если всё верно.</b></div></div>`}
       <div class="btn-row sticky-actions">

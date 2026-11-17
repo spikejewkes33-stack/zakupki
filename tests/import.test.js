@@ -298,3 +298,52 @@ test('настоящий файл PDD.txt с iPhone пользователя (17
   assert.equal(r.orderNo, '261113-200000000000002');
   assert.equal(r.status, 6);
 });
+
+test('экран заказа после отправки: одно нажатие — русское название, цена, трек, перевозчик, статус', async () => {
+  const { ruName } = await import('../site/src/names.js');
+  const b = splitBlocks(fx('zakaz-otpravlen'));
+  assert.equal(b.length, 1);
+  const r = classify(b[0].lines);
+  assert.equal(r.kind, 'order');
+  assert.equal(r.orderNo, '261111-800000000000008');
+  assert.equal(r.nameCn, '工程车贴纸儿童贴画小汽车交通工具警车消防车泡泡贴画恐龙');
+  assert.equal(r.variant, '96.8%选择（交通工具泡泡贴）24张重复');
+  assert.equal(r.qty, 1);
+  assert.equal(r.paidFen, 380);
+  assert.equal(r.track, '777400000000008');
+  assert.equal(r.carrier, '申通快递 (STO)');
+  assert.equal(r.status, 6);
+  assert.equal(ruName(r.nameCn, r.variant), 'Наклейки детские');
+  const plan = buildPlan(b, ctx({ purchases: new Map([['p1', { ...purchase, sessions: [{ id: 's', clientId: 'ayt', startedAt: '2026-11-17T12:00:00.000Z', endedAt: null }] }]]) }));
+  const n = plan.newItems[0];
+  assert.equal(n.name, 'Наклейки детские');
+  assert.equal(n.clientId, 'ayt');
+  assert.equal(n.track, '777400000000008');
+});
+
+test('склеенная строка «展开（汐暮 潜力好店…» и адрес перед ней не попадают в название', () => {
+  const r = parseOrder(['李 138****0000', '某某路某某工业区…', '展开（汐暮 潜力好店工程车贴纸儿童贴画小汽车交通工具警车消防', '车泡泡贴画恐龙…96.8%选择（交通工具泡泡贴）24张重复*8.8', '×1', '实付：¥3.8', '订单号：261111-800000000000008']);
+  assert.equal(r.nameCn, '工程车贴纸儿童贴画小汽车交通工具警车消防车泡泡贴画恐龙');
+  assert.equal(r.shop, '');
+});
+
+test('уже есть карточка с этим номером заказа (неудачная из прошлого раза) — дополняется: русское название, трек, фото', () => {
+  const items = [{ id: 'bad', purchaseId: 'p1', clientId: 'ayt', name: '', nameCn: '展开（汐暮…', pddOrderNo: '261111-800000000000008', track: '', status: 1, qty: 1, photoId: null }];
+  const file = fx('zakaz-otpravlen').replace('确认收货', '确认收货\nIMG:aGVsbG8=');
+  const plan = buildPlan(splitBlocks(file), ctx({ items }));
+  assert.equal(plan.newItems.length, 0);
+  const u = plan.updates[0];
+  assert.equal(u.patch.name, 'Наклейки детские');
+  assert.equal(u.patch.track, '777400000000008');
+  assert.equal(u.patch.status, 6);
+  assert.equal(u.image, 'aGVsbG8=');
+});
+
+test('словарь: короткие русские названия', async () => {
+  const { ruName } = await import('../site/src/names.js');
+  assert.equal(ruName('儿童秋衣秋裤套装德绒男童女童秋冬内衣家居服宝宝保暖打底睡衣'), 'Термобельё детское');
+  assert.equal(ruName('小众慵懒风圆领套头毛衣女秋冬'), 'Свитер женский');
+  assert.equal(ruName('儿童一脚蹬棉鞋'), 'Слипоны детские');
+  assert.equal(ruName('苹果15手机壳透明'), 'Чехол для телефона');
+  assert.equal(ruName('某某新品'), '');
+});

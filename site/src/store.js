@@ -236,17 +236,20 @@ export async function applyImport(plan) {
   for (const n of plan.newItems) {
     if (n.skip) continue;
     const day = n.time ? new Date(Date.parse(n.time) - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10) : todayLocal();
+    const photoId = n.photoBlob ? await savePhoto(n.photoBlob) : null;
     await saveItem({
-      ...emptyItem(n.purchaseId, n.clientId),
+      ...emptyItem(n.purchaseId, n.clientId), photoId,
       name: n.name || '', nameCn: n.nameCn, variant: n.variant, qty: n.qty, paidFen: n.paidFen, unitFen: null,
       pddOrderNo: n.pddOrderNo, track: n.track, carrier: n.carrier, status: n.status, orderDate: day,
-      note: n.shop ? `Магазин: ${n.shop}` : '', importBlockId: n.blockId,
+      note: '', importBlockId: n.blockId,
     });
     created += 1;
     done.push(n.blockId, ...(n.extraBlocks || []).filter((b) => !(plan.pendingResolved || []).some((t) => t.blockId === b)));
   }
   for (const u of plan.updates) {
-    if (Object.keys(u.patch).length) await commit('items', u.itemId, u.patch, 'import');
+    const patch = { ...u.patch };
+    if (u.photoBlob) patch.photoId = await savePhoto(u.photoBlob);
+    if (Object.keys(patch).length) await commit('items', u.itemId, patch, 'import');
     done.push(u.blockId);
   }
   for (const t of plan.tracks) {

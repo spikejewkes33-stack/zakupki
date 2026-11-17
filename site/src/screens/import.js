@@ -4,6 +4,17 @@ import * as S from '../store.js';
 import { splitBlocks, buildPlan, diagnoseText, asSingleBlock } from '../pddimport.js';
 import { centsToInput, parseCents, fmtCny, fmtByn, itemMoney } from '../money.js';
 import { statusLabel, itemTitle } from '../model.js';
+import { cropThumbFromBase64 } from '../photocrop.js';
+
+// Фото товара из снимков экрана: вырезаем заранее, чтобы показать в сводке и записать в карточку.
+async function addPhotos(plan) {
+  const one = async (x) => {
+    if (!x.image) return x;
+    const blob = await cropThumbFromBase64(x.image).catch(() => null);
+    return blob ? { ...x, photoBlob: blob, photoUrl: URL.createObjectURL(blob) } : x;
+  };
+  return { ...plan, newItems: await Promise.all(plan.newItems.map(one)), updates: await Promise.all(plan.updates.map(one)) };
+}
 
 function makePlan(text) {
   const blocks = splitBlocks(text);
@@ -24,24 +35,35 @@ function NewItemCard({ n, update, multiPurchase }) {
   const m = itemMoney({ qty: n.qty, paidFen: n.paidFen }, p);
   return html`<div class=${`card import-item ${n.skip ? 'off' : ''}`}>
     <label class="check"><input type="checkbox" checked=${!n.skip} onChange=${(e) => update({ skip: !e.target.checked })} /> Добавить</label>
-    <div class="muted small">${n.time ? timeRu(n.time) : 'время нажатия неизвестно'}${multiPurchase && p ? ` · ${p.name}` : ''} · заказ ${n.pddOrderNo || '—'}</div>
+    <div class="muted small">${n.time ? timeRu(n.time) : 'время нажатия неизвестно'}${multiPurchase && p ? ` · ${p.name}` : ''}</div>
     <button class=${`btn block left ${n.clientId ? '' : 'warn-btn'}`} onClick=${() => setPick(true)}>
       ${n.clientId ? `${S.clientName(n.clientId)}${n.clientBy === 'time' ? ' · по времени' : ''}` : 'Выбрать клиента'}
     </button>
-    <div class="cn">${n.nameCn || '(название не распознано)'}</div>
-    ${n.variant && html`<div class="muted small">Вариант: ${n.variant}</div>`}
-    <label class="small">Название по-русски (для описи)
-      <input value=${n.name} onInput=${(e) => update({ name: e.target.value })} placeholder="можно позже" /></label>
+    <div class="import-head">
+      ${n.photoUrl ? html`<img class="import-photo" src=${n.photoUrl} alt="Фото товара" />` : html`<div class="import-photo none">нет фото</div>`}
+      <label class="small grow">Название
+        <input value=${n.name} onInput=${(e) => update({ name: e.target.value, nameAuto: false })} placeholder="впишите по-русски" />
+        ${n.nameAuto && html`<span class="hint">переведено по словарю — проверьте</span>`}
+        ${!n.name && html`<span class="hint warn-text">не знаю такой товар — впишите один раз, запомню</span>`}</label>
+    </div>
     <div class="grid2">
       <label class="small">Количество<input inputmode="numeric" value=${n.qty} onInput=${(e) => update({ qty: Math.max(1, parseInt(e.target.value, 10) || 1) })} /></label>
       <label class="small">Оплачено (实付), ¥<input inputmode="decimal" value=${centsToInput(n.paidFen)}
         onChange=${(e) => { const v = parseCents(e.target.value); update({ paidFen: Number.isNaN(v) ? n.paidFen : v }); }} /></label>
     </div>
     <div class="small">${fmtCny(m.totalFen)} → ${fmtByn(m.totalKop)}${n.qty > 1 ? ` · за 1 шт ≈ ${fmtCny(m.unitFen)}` : ''}</div>
-    ${n.track && html`<div class="small">Трек: <span class="mono">${n.track}</span> · ${n.carrier} · ${statusLabel(n.status)}</div>`}
+    ${n.track ? html`<div class="small">Трек: <b class="mono">${n.track}</b> · ${n.carrier} · ${statusLabel(n.status)}</div>`
+      : html`<div class="muted small">Трека пока нет — появится, когда продавец отправит (снимите этот заказ ещё раз).</div>`}
+    <details class="muted small"><summary>Из PDD</summary><div>${n.nameCn || '—'}</div>${n.variant && html`<div>Вариант: ${n.variant}</div>`}<div>Заказ ${n.pddOrderNo || '—'}</div></details>
     ${n.doubts.length > 0 && html`<div class="warn-text small">Проверьте: ${n.doubts.join('; ')}</div>`}
     ${pick && html`<${ClientPicker} title="Чей товар?" onClose=${() => setPick(false)} onPick=${(c) => { setPick(false); update({ clientId: c.id, clientBy: 'hand' }); }} />`}
   </div>`;
+}
+
+// Фото пришли позже, чем пользователь мог поправить сводку: переносим только фото.
+function mergePhotos(cur, ph) {
+  const pick = (list, src) => list.map((x, i) => (src[i]?.photoBlob ? { ...x, photoBlob: src[i].photoBlob, photoUrl: src[i].photoUrl } : x));
+  return { ...cur, newItems: pick(cur.newItems, ph.newItems), updates: pick(cur.updates, ph.updates) };
 }
 
 export function ImportScreen() {
@@ -60,7 +82,9 @@ export function ImportScreen() {
       return;
     }
     setProblem(null);
-    setPlan(makePlan(text));
+    const pl = makePlan(text);
+    setPlan(pl);
+    if (pl.newItems.some((x) => x.image) || pl.updates.some((x) => x.image)) addPhotos(pl).then((withPhotos) => setPlan((cur) => (cur && cur.newItems.length === withPhotos.newItems.length ? mergePhotos(cur, withPhotos) : cur)));
   };
   const onFile = async (e) => {
     const f = e.target.files?.[0];
@@ -125,7 +149,7 @@ export function ImportScreen() {
   const multiPurchase = new Set(plan.newItems.map((n) => n.purchaseId)).size > 1;
   // Нечего записывать — только если в файле нет ни одного нового понятного снимка.
   const nothing = !active.length && !plan.tracks.length && !plan.updates.length && !plan.pending.length && !(plan.pendingResolved || []).length;
-  const onlySeen = !active.length && !realTracks.length && !plan.updates.some((u) => Object.keys(u.patch).length) && !plan.pending.length;
+  const onlySeen = !active.length && !realTracks.length && !plan.updates.some((u) => Object.keys(u.patch).length || u.photoBlob) && !plan.pending.length;
 
   const apply = async () => {
     setBusy(true);
@@ -146,7 +170,7 @@ export function ImportScreen() {
       <div class="eyebrow">Что сделаю</div>
       <div>Новых товаров: <b>${active.length}</b>${noClient ? html` · <span class="warn-text">без клиента: ${noClient}</span>` : ''}</div>
       <div>Треков привяжу: <b>${tracks}</b></div>
-      ${plan.updates.some((u) => Object.keys(u.patch).length) && html`<div>Дополню карточки: <b>${plan.updates.filter((u) => Object.keys(u.patch).length).length}</b></div>`}
+      ${plan.updates.some((u) => Object.keys(u.patch).length || u.photoBlob) && html`<div>Дополню ваши карточки: <b>${plan.updates.filter((u) => Object.keys(u.patch).length || u.photoBlob).length}</b></div>`}
       ${plan.pending.length > 0 && html`<div>Треков без карточки (подождут): <b>${plan.pending.length}</b></div>`}
       ${plan.unknown.length > 0 && html`<div class="warn-text">Не понял снимков: <b>${plan.unknown.length}</b></div>`}
       ${plan.skipped > 0 && html`<div class="muted">Уже забирали раньше: ${plan.skipped}</div>`}
@@ -157,6 +181,14 @@ export function ImportScreen() {
 
     ${plan.newItems.length > 0 && html`<h3>Новые товары</h3>
       ${plan.newItems.map((n, i) => html`<${NewItemCard} key=${n.blockId} n=${n} multiPurchase=${multiPurchase} update=${(patch) => setNew(i, patch)} />`)}`}
+
+    ${plan.updates.some((u) => Object.keys(u.patch).length || u.photoBlob) && html`<h3>Дополню ваши карточки</h3>
+      <div class="list">${plan.updates.filter((u) => Object.keys(u.patch).length || u.photoBlob).map((u) => {
+        const it = S.state.items.get(u.itemId);
+        const what = [u.photoBlob && 'фото', u.patch.name && `название «${u.patch.name}»`, u.patch.track && `трек ${u.patch.track}`, u.patch.paidFen != null && 'цену', u.patch.status && statusLabel(u.patch.status)].filter(Boolean);
+        return html`<div class="row">${u.photoUrl && html`<img class="import-photo small" src=${u.photoUrl} alt="" />`}
+          <div class="row-main"><div class="row-title">${itemTitle(it)}</div><div class="row-sub">${S.clientName(it.clientId)} · добавлю: ${what.join(', ')}</div></div></div>`;
+      })}</div>`}
 
     ${plan.tracks.length > 0 && html`<h3>Треки к товарам</h3>
       <div class="list">${plan.tracks.map((t, i) => {

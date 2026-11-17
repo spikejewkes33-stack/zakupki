@@ -5,6 +5,7 @@
 // Экран заказа (订单详情) → карточка товара; экран логистики (查看物流) → трек к карточке по номеру заказа.
 // Ничего не додумывается: что не распознано — показывается пользователю.
 import { clientForTime } from './order.js';
+import { ruName } from './names.js';
 
 export const BLOCK_MARK = '===PDD===';
 
@@ -43,9 +44,16 @@ export function splitBlocks(fileText) {
     let i = 0;
     while (i < raw.length && !raw[i].trim()) i++;
     const time = parseTime(raw[i]);
-    const body = (time ? raw.slice(i + 1) : raw.slice(i)).map((l) => l.trim()).filter(Boolean);
+    let body = (time ? raw.slice(i + 1) : raw.slice(i)).map((l) => l.trim()).filter(Boolean);
+    // Уменьшенный снимок экрана от «Команды»: строка «IMG:» и Base64 (может быть разбит на строки).
+    let image = '';
+    const at = body.findIndex((l) => /^IMG:/i.test(l));
+    if (at >= 0) {
+      image = body.slice(at).join('').replace(/^IMG:/i, '').replace(/[^A-Za-z0-9+/=]/g, '');
+      body = body.slice(0, at);
+    }
     const text = body.join('\n');
-    return { id: blockId(time, text), time, lines: body, text };
+    return { id: blockId(time, text), time, lines: body, text, image };
   }).filter((b) => b.lines.length);
 }
 
@@ -81,7 +89,7 @@ const qtyOf = (line) => {
   return m ? Number(m[1].replace(/[lI|]/g, '1')) || 1 : null;
 };
 const isQtyLine = (l) => qtyOf(l) != null && /^(?:[￥¥]\s*[\d.,\s]+)?\s*[×xX✕*]/.test(l);
-const STOP_BEFORE = /展开|号码保护|收货地址|签收|送达|快件|\d{3}\*{3,4}\d{4}|^\d{1,2}:\d{2}|^LTE|^5G|^4G/;
+const STOP_BEFORE = /展开|号码保护|收货地址|签收|送达|快件|\d{3}\*{3,4}\d{4}|^\d{1,2}:\d{2}|^LTE|^5G|^4G|[省市区县镇村路街道].{0,12}(?:…|\.\.)$/;
 const END_ITEM = /7天无理由|分享商品|联系商家|申请退款|退货包运费|极速退款|假一赔|晚发必赔|退款/;
 const SHOP_HINT = /店$|旗舰|专营|官方|工厂|商行|百货|超市|小铺|好物|批发|自营/;
 const CARRIER = /((?:[一-龥]{2,8}?(?:快递|速递|快运|物流|速运|邮政|特快))|EMS)\s*[:：]\s*([A-Za-z0-9][A-Za-z0-9 ]{6,40}[A-Za-z0-9])/;
@@ -114,6 +122,26 @@ const toFen = (s) => {
   return Number(i) * 100 + Number(f.padEnd(2, '0').slice(0, 2));
 };
 const MONEY = '(\\d+(?:,\\d{3})*(?:[.,]\\s?\\d{1,2})?)';
+
+// «Метка：значение» в одной строке или значение следующей строкой (Live Text читает таблицу по-разному).
+function labelValue(lines, label) {
+  const i = lines.findIndex((l) => label.test(l));
+  if (i < 0) return '';
+  const same = lines[i].replace(label, '').replace(/^[\s:：]+/, '').replace(/[|｜].*$/, '').trim();
+  if (same) return same;
+  const next = (lines[i + 1] || '').replace(/[|｜].*$/, '').trim();
+  return /[:：]/.test(next) ? '' : next;
+}
+
+// Название без «展开», имени магазина, цены и «…» (Live Text склеивает их с названием).
+function cleanTitle(t) {
+  let s = String(t || '').replace(/\s+/g, '');
+  s = s.replace(/^.*?展开[（(]?/, '');
+  s = s.replace(/^.{0,10}?(?:潜力好店|品牌好店|旗舰店|专营店|官方店|专卖店|好店|小店|店铺)[>〉》]?/, '');
+  s = s.replace(/[*¥￥]\d+(?:\.\d+)?/g, '').replace(/[×xX✕]\d{1,3}/g, '');
+  s = s.split(/…|\.\.\./)[0];
+  return s.trim();
+}
 
 // Экран заказа: название, вариант, 实付, ×N, номер заказа.
 export function parseOrder(lines) {
@@ -156,15 +184,22 @@ export function parseOrder(lines) {
   // Начало блока товара: после строки адреса/доставки («展开», телефон со звёздочками).
   const from = pi >= 0 ? Math.min(pi, anchor) : anchor;
   let start = 0;
-  for (let i = from - 1; i >= 0; i--) if (STOP_BEFORE.test(lines[i])) { start = i + 1; break; }
+  // «展开（магазин название…» в одной строке (Live Text склеил): строку берём, лишнее срежет cleanTitle.
+  let glued = false;
+  for (let i = from - 1; i >= 0; i--) {
+    if (!STOP_BEFORE.test(lines[i])) continue;
+    glued = /展开.{4,}/.test(lines[i]);
+    start = glued ? i : i + 1;
+    break;
+  }
   const head = lines.slice(start, anchor).filter((l) => !PRICE_LINE.test(l) && !isQtyLine(l) && !END_ITEM.test(l));
   let shop = '';
   let titleLines = head;
-  if (head.length >= 3 || (head.length === 2 && SHOP_HINT.test(head[0]))) {
+  if (!glued && (head.length >= 3 || (head.length === 2 && SHOP_HINT.test(head[0])))) {
     shop = head[0];
     titleLines = head.slice(1);
   }
-  const nameCn = titleLines.join('').trim();
+  const nameCn = cleanTitle(titleLines.join(''));
   if (!nameCn) doubts.push('не нашёл название');
 
   // Вариант: строки после «×N» до «7天无理由…».
@@ -177,10 +212,24 @@ export function parseOrder(lines) {
     }
     variant = out.join(' ');
   }
+  const spec = labelValue(lines, /^已购规格/);
+  if (spec) variant = spec;
+  const bought = labelValue(lines, /^已购数量/);
+  if (qi < 0 && /^\d{1,4}$/.test(bought)) {
+    qty = Number(bought);
+    const k = doubts.indexOf('не нашёл количество «×N», поставил 1');
+    if (k >= 0) doubts.splice(k, 1);
+  }
+  // Когда продавец уже отправил, на экране заказа есть «物流公司» и «快递单号» — трек сразу.
+  const carrierCn = (labelValue(lines, /^物流公司/).match(/[\u4e00-\u9fa5A-Za-z]{2,12}/) || [''])[0];
+  const trackRaw = labelValue(lines, /^(?:快递单号|运单号|物流单号)/);
+  const track = ((trackRaw.match(/[A-Za-z0-9][A-Za-z0-9 ]{6,40}[A-Za-z0-9]/) || [''])[0]).replace(/\s+/g, '').toUpperCase();
   if (!orderNo) doubts.push('нет номера заказа (订单号) — прокрутите экран, чтобы он был виден, и снимите ещё раз; без него трек не привяжется');
   const nd = orderNoDoubt(orderNo);
   if (nd) doubts.push(nd);
-  return { kind: 'order', orderNo, nameCn, shop, variant, qty, paidFen, priceFen, doubts };
+  const st = track ? logisticsStatus(lines) : { status: 1, statusWord: '' };
+  return { kind: 'order', orderNo, nameCn, shop, variant, qty, paidFen, priceFen, track: track.length >= 8 ? track : '',
+    carrier: carrierCn ? carrierLabel(carrierCn) : '', status: track ? Math.max(4, st.status) : 1, doubts };
 }
 
 // Статус по словам на экране логистики (до ленты рекомендаций).
@@ -226,7 +275,7 @@ export function parseLogistics(lines) {
 export function classify(lines) {
   const t = lines.join('\n');
   // Экран заказа узнаём по «实付»: даже если на нём мелькнёт строка перевозчика, это заказ.
-  if (/实付/.test(t)) return parseOrder(lines);
+  if (/实付|订单号.*\n?[\s\S]*已购数量/.test(t)) return parseOrder(lines);
   const hasTrack = lines.some((l) => CARRIER.test(l)) || /物流单号[:：]/.test(t);
   if (hasTrack) return parseLogistics(lines);
   if (/订单号/.test(t) && lines.some(isQtyLine)) return parseOrder(lines);
@@ -278,13 +327,20 @@ export function buildPlan(blocks, ctx) {
       plan.unknown.push({ blockId: block.id, time: block.time, preview: block.lines.slice(0, 6), doubts: r.doubts });
       continue;
     }
+    const ru = ctx.translations?.[r.nameCn] || ruName(r.nameCn, r.variant);
     const exist = byOrder(r.orderNo);
     if (exist) {
+      // Карточка уже есть (сделана вручную или прошлым снимком) — дополняем только пустые поля.
       const patch = {};
       if (!exist.nameCn && r.nameCn) patch.nameCn = r.nameCn;
+      if (!exist.name && ru) patch.name = ru;
       if (!exist.variant && r.variant) patch.variant = r.variant;
       if (exist.paidFen == null && exist.unitFen == null && r.paidFen != null) patch.paidFen = r.paidFen;
-      plan.updates.push({ blockId: block.id, itemId: exist.id, patch, what: Object.keys(patch).length ? 'дополню карточку' : 'уже есть' });
+      if (r.track && norm(exist.track) !== norm(r.track) && !exist.track) patch.track = r.track;
+      if (r.track && !exist.carrier && r.carrier) patch.carrier = r.carrier;
+      if (r.track && (exist.status || 1) < r.status) patch.status = r.status;
+      const wantPhoto = !exist.photoId && !!block.image;
+      plan.updates.push({ blockId: block.id, itemId: exist.id, patch, image: wantPhoto ? block.image : '', what: Object.keys(patch).length || wantPhoto ? 'дополню карточку' : 'уже есть' });
       continue;
     }
     // Без номера заказа дубль узнаём по тому же названию и сумме с разницей во времени до 2 минут (двойное нажатие).
@@ -299,9 +355,9 @@ export function buildPlan(blocks, ctx) {
     const w = whereAndWho(block.time);
     plan.newItems.push({
       blockId: block.id, time: block.time, purchaseId: w.purchaseId, clientId: w.clientId, clientBy: w.by,
-      nameCn: r.nameCn, name: ctx.translations?.[r.nameCn] || '', variant: r.variant, shop: r.shop,
+      nameCn: r.nameCn, name: ru, nameAuto: !ctx.translations?.[r.nameCn] && !!ru, variant: r.variant, shop: r.shop,
       qty: r.qty, paidFen: r.paidFen, pddOrderNo: r.orderNo, doubts: w.doubt ? [...r.doubts, w.doubt] : r.doubts,
-      track: '', carrier: '', status: 1,
+      track: r.track || '', carrier: r.carrier || '', status: r.status || 1, image: block.image || '',
     });
   }
 

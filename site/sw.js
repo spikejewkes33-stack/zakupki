@@ -25,6 +25,8 @@ const FILES = [
   'src/opis.js',
   'src/export.js',
   'src/pddimport.js',
+  'src/names.js',
+  'src/photocrop.js',
   'src/screens/import.js',
   'src/screens/help.js',
   'src/screens/purchases.js',
