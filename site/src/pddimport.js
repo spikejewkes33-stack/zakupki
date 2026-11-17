@@ -45,6 +45,20 @@ export function splitBlocks(fileText) {
   }).filter((b) => b.lines.length);
 }
 
+// Что за текст выбрали или вставили: понятные сообщения вместо «ничего не произошло».
+//  'blocks'   — есть снимки «Команды» (===PDD===);
+//  'nomarker' — текст снимка PDD без метки: «Команда» пробная или в «Тексте» нет строки ===PDD===;
+//  'empty'    — пусто; 'foreign' — не похоже на снимки PDD.
+export function diagnoseText(text) {
+  const t = String(text || '').trim();
+  if (!t) return 'empty';
+  if (t.includes(BLOCK_MARK)) return splitBlocks(t).length ? 'blocks' : 'empty';
+  if (/实付|订单|快递|速递|物流|[一-龥]{4,}/.test(t)) return 'nomarker';
+  return 'foreign';
+}
+// Текст без метки разбираем как один снимок (время нажатия неизвестно — клиента выберет пользователь).
+export const asSingleBlock = (text) => `${BLOCK_MARK}\n${String(text || '').trim()}\n`;
+
 // ——— Шаблоны ———
 // Распознавание может вставить пробел или длинное тире в номер: «261116 — 3000 0000…». Чиним перед поиском.
 function fixNumbers(line) {

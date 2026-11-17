@@ -1,6 +1,6 @@
 // Каркас: маршруты по адресу после #, нижнее меню, загрузка данных.
 import { html, render, useState, useEffect } from '../vendor/preact-htm.js';
-import { Toasts } from './ui.js';
+import { Toasts, PhotoViewer } from './ui.js';
 import * as S from './store.js';
 import { Home, PurchaseList, PurchaseForm, PurchaseScreen, PurchaseClient } from './screens/purchases.js';
 import { ItemForm } from './screens/items.js';
@@ -66,6 +66,7 @@ function App() {
     <nav class="tabs">${TABS.map((t) => html`<a href=${`#${t.path}`} class=${t.match(route.path) ? 'on' : ''}>
       <span class="tab-icon" aria-hidden="true">${t.icon}</span><span>${t.label}</span></a>`)}</nav>
     <${Toasts} />
+    <${PhotoViewer} />
   </div>`;
 }
 

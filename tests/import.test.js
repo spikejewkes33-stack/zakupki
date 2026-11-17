@@ -260,3 +260,17 @@ test('два товара одной посылкой: общий трек не 
   assert.equal(p2.tracks[0].itemId, 'i2');
   assert.equal(p2.tracks[0].replaces, '');
 });
+
+test('понятные сообщения: пустой файл, текст пробной «Команды» без метки, чужой текст', async () => {
+  const { diagnoseText, asSingleBlock } = await import('../site/src/pddimport.js');
+  assert.equal(diagnoseText(''), 'empty');
+  assert.equal(diagnoseText(`${BLOCK_MARK}\n\n`), 'empty');
+  assert.equal(diagnoseText(block('2026-11-17T10:05:00+03:00', fx('zakaz-detali'))), 'blocks');
+  assert.equal(diagnoseText(fx('logistika-yunda-livetext')), 'nomarker');
+  assert.equal(diagnoseText('Список покупок: молоко, хлеб'), 'foreign');
+  // текст без метки разбирается как один снимок: трек есть, клиента выберет пользователь
+  const plan = buildPlan(splitBlocks(asSingleBlock(fx('zakaz-detali'))), ctx());
+  assert.equal(plan.newItems.length, 1);
+  assert.equal(plan.newItems[0].clientId, null);
+  assert.equal(plan.newItems[0].paidFen, 1590);
+});

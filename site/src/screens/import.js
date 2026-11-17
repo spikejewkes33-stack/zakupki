@@ -1,7 +1,7 @@
 // «Забрать» из «Команды»: выбрать файл PDD.txt (или вставить текст) → сводка → поправить → применить.
 import { html, useState, Header, Empty, ClientPicker, go, timeRu, toast } from '../ui.js';
 import * as S from '../store.js';
-import { splitBlocks, buildPlan } from '../pddimport.js';
+import { splitBlocks, buildPlan, diagnoseText, asSingleBlock } from '../pddimport.js';
 import { centsToInput, parseCents, fmtCny, fmtByn, itemMoney } from '../money.js';
 import { statusLabel, itemTitle } from '../model.js';
 
@@ -50,22 +50,36 @@ export function ImportScreen() {
   const [showPaste, setShowPaste] = useState(false);
   const [bulk, setBulk] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [empty, setEmpty] = useState(false);
+  const [problem, setProblem] = useState(null); // { kind, text, from }
 
-  const load = (text) => {
-    const pl = makePlan(text);
-    if (!pl.blocks) {
-      setEmpty(true);
-      return undefined;
+  const load = (text, from) => {
+    const kind = diagnoseText(text);
+    if (kind !== 'blocks') {
+      setProblem({ kind, text, from });
+      return;
     }
-    setEmpty(false);
-    setPlan(pl);
-    return undefined;
+    setProblem(null);
+    setPlan(makePlan(text));
   };
   const onFile = async (e) => {
     const f = e.target.files?.[0];
     e.target.value = '';
-    if (f) load(await f.text());
+    if (!f) return;
+    if (!/\.txt$/i.test(f.name) && f.type && f.type !== 'text/plain') {
+      setProblem({ kind: 'foreign', text: '', from: `файл «${f.name}»` });
+      return;
+    }
+    load(await f.text(), `файл «${f.name}»`);
+  };
+  // Буфер обмена: iPhone покажет плашку «Вставить» — её нужно нажать.
+  const fromClipboard = async () => {
+    try {
+      const t = await navigator.clipboard.readText();
+      load(t, 'буфер обмена');
+    } catch {
+      setShowPaste(true);
+      toast('Не удалось прочитать буфер — вставьте текст в поле ниже (нажмите в поле → «Вставить»)');
+    }
   };
   const setNew = (i, patch) => setPlan({ ...plan, newItems: plan.newItems.map((n, k) => (k === i ? { ...n, ...patch } : n)) });
 
@@ -73,15 +87,22 @@ export function ImportScreen() {
     return html`<${Header} title="Забрать из PDD" back=${true} />
     <main>
       <section class="card">
-        <p>Нажимайте Кнопку действия на экране заказа и на экране логистики в Pinduoduo. «Команда» копит текст в файле <b>PDD.txt</b> (iCloud Drive → Shortcuts).</p>
-        <p>Здесь выберите этот файл — приложение само разложит товары по клиентам и привяжет треки. Перед записью покажет, что сделает.</p>
+        <p>Снимки Кнопкой действия копятся в файле <b>PDD.txt</b>. <b>Сами в приложение они не попадают</b> — их забирают здесь:</p>
         <label class="btn primary block file-btn">Выбрать файл PDD.txt<input type="file" accept=".txt,text/plain" onChange=${onFile} /></label>
-        ${empty && html`<div class="card warn">В файле нет снимков «Команды». Если «Команда» ещё не собрана или файла PDD.txt нет — настройте её по инструкции.
-          <a class="btn block" href="#/help">Как настроить «Команду»</a></div>`}
+        <p class="muted small">Откроется выбор файла: «Обзор» → iCloud Drive → папка <b>Shortcuts</b> (может называться «Быстрые команды») → PDD.txt.</p>
+        <button class="btn block" onClick=${fromClipboard}>Вставить из буфера обмена</button>
+        <p class="muted small">Если «Команда» копирует текст в буфер — нажмите и потом «Вставить» на плашке iPhone.</p>
+        ${problem && html`<div class="card warn">
+          ${problem.kind === 'empty' && html`<div><b>${problem.from ? `${problem.from[0].toUpperCase()}${problem.from.slice(1)}` : 'Текст'} пустой.</b> Снимков ещё нет: нажмите Кнопку действия на экране заказа в Pinduoduo — должна быть вибрация. Если вибрации нет, «Команда» не настроена.</div>`}
+          ${problem.kind === 'foreign' && html`<div><b>Это не снимки PDD</b> (${problem.from}). Нужен текстовый файл PDD.txt из папки Shortcuts в iCloud Drive.</div>`}
+          ${problem.kind === 'nomarker' && html`<div><b>Это текст снимка PDD, но без строки ===PDD===.</b> Похоже, «Команда» ещё пробная («Показать результат») или в действии «Текст» нет первой строки ===PDD===. Время нажатия неизвестно — клиента выберете сами.</div>
+            <button class="btn primary block" onClick=${() => load(asSingleBlock(problem.text), problem.from)}>Разобрать как один снимок</button>`}
+          <a class="btn block" href="#/help">Как настроить «Команду»</a>
+        </div>`}
         <a class="help-link" href="#/help">Как настроить «Команду» на iPhone</a>
         <button class="linkish" onClick=${() => setShowPaste(!showPaste)}>${showPaste ? '▾' : '▸'} или вставить текст</button>
         ${showPaste && html`<textarea rows="6" value=${paste} onInput=${(e) => setPaste(e.target.value)} placeholder="===PDD===…"></textarea>
-          <button class="btn block" onClick=${() => load(paste)}>Разобрать</button>`}
+          <button class="btn block" onClick=${() => load(paste, 'вставленный текст')}>Разобрать</button>`}
         <p class="muted small">Тот же файл можно забирать много раз: уже забранное не задвоится.</p>
       </section>
       ${S.state.importInfo.pending.length > 0 && html`<section class="card">

@@ -99,7 +99,11 @@ export function Home() {
             <a class="btn" href=${`#/p/${p.id}`}>Клиенты закупки</a>
             <a class="btn" href=${`#/opis/${p.id}`}>Опись</a>
           </div>
-          <a class="btn primary block" href="#/import">Забрать из PDD (снимки «Команды»)</a>
+        </section>
+        <section class="card take">
+          <div><b>Сделали снимки Кнопкой действия?</b> Сами в приложение они не попадают — нажмите:</div>
+          <a class="btn primary block big" href="#/import">📥 Забрать из PDD</a>
+          <div class="muted small">${S.state.importInfo.lastImportAt ? `Последний раз забирали: ${timeRu(S.state.importInfo.lastImportAt)}` : 'Ещё не забирали ни разу.'}${S.state.importInfo.pending.length ? ` · треков ждут карточку: ${S.state.importInfo.pending.length}` : ''}</div>
           <a class="help-link" href="#/help">Как настроить «Команду» на iPhone</a>
         </section>
         <${OrderingPanel} p=${p} />`}

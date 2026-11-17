@@ -36,14 +36,55 @@ export function StatusChip({ status }) {
   return html`<span class="chip s${status}">${statusShort(status)}</span>`;
 }
 
+// Фото из хранилища: адрес картинки один раз на фото (память не растёт при прокрутке).
+const photoUrls = new Map();
+export function usePhotoUrl(id) {
+  const [url, setUrl] = useState(photoUrls.get(id) || null);
+  useEffect(() => {
+    if (!id) return setUrl(null);
+    if (photoUrls.has(id)) return setUrl(photoUrls.get(id));
+    let alive = true;
+    S.getPhoto(id).then((p) => {
+      if (!p) return;
+      const u = URL.createObjectURL(p.blob);
+      photoUrls.set(id, u);
+      if (alive) setUrl(u);
+    });
+    return () => { alive = false; };
+  }, [id]);
+  return url;
+}
+
+// Просмотр фото крупно: открывается нажатием на миниатюру.
+let viewerSet = null;
+export const showPhoto = (id) => viewerSet?.(id);
+export function PhotoViewer() {
+  const [id, setId] = useState(null);
+  viewerSet = setId;
+  const url = usePhotoUrl(id);
+  if (!id) return null;
+  return html`<div class="viewer" role="dialog" aria-label="Фото товара" onClick=${() => setId(null)}>
+    ${url && html`<img src=${url} alt="Фото товара" />`}
+    <button class="icon-btn viewer-close" aria-label="Закрыть">✕</button>
+  </div>`;
+}
+
+function Thumb({ id }) {
+  const url = usePhotoUrl(id);
+  return html`<button class="thumb" aria-label="Фото крупно" onClick=${(e) => { e.preventDefault(); e.stopPropagation(); showPhoto(id); }}>
+    ${url ? html`<img src=${url} alt="" loading="lazy" />` : html`<span>📷</span>`}
+  </button>`;
+}
+
 // Строка товара в списке.
 export function ItemRow({ item, showClient, showPurchase }) {
   const p = S.purchaseById(item.purchaseId);
   const m = itemMoney(item, p);
   const variant = [item.color, item.size, item.kit, item.variant].filter(Boolean).join(' · ');
   return html`<a class="row item-row" href=${`#/item/${item.id}`}>
+    ${item.photoId && html`<${Thumb} id=${item.photoId} />`}
     <div class="row-main">
-      <div class="row-title">${itemTitle(item)}${!item.name && item.nameCn ? html` <span class="chip s2">нет рус.</span>` : ''}${item.photoId ? html` <span class="muted" title="есть фото">📷</span>` : ''}</div>
+      <div class="row-title">${itemTitle(item)}${!item.name && item.nameCn ? html` <span class="chip s2">нет рус.</span>` : ''}</div>
       ${variant && html`<div class="row-sub">${variant}</div>`}
       ${showClient && html`<div class="row-sub">${S.clientName(item.clientId)}${showPurchase ? ` · ${p?.name || ''}` : ''}</div>`}
       <div class="row-sub">

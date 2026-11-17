@@ -260,7 +260,7 @@ export async function applyImport(plan) {
     : plan.tracks.some((x) => x.blockId === t.via?.trackBlockId && !x.skip));
   const resolved = new Set((plan.pendingResolved || []).filter(applied).map((t) => t.blockId));
   const pending = [...state.importInfo.pending.filter((t) => !resolved.has(t.blockId)), ...plan.pending];
-  await saveImportInfo({ blockIds: [...new Set([...state.importInfo.blockIds, ...done])], pending });
+  await saveImportInfo({ blockIds: [...new Set([...state.importInfo.blockIds, ...done])], pending, lastImportAt: nowIso() });
   return { created, tracks: plan.tracks.filter((t) => !t.skip && Object.keys(t.patch).length).length + plan.newItems.filter((n) => !n.skip && n.track).length };
 }
 
