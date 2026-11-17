@@ -55,7 +55,8 @@ export function ImportScreen() {
   const load = (text, from) => {
     const kind = diagnoseText(text);
     if (kind !== 'blocks') {
-      setProblem({ kind, text, from });
+      const lines = String(text || '').split(/\r?\n/).filter((l) => l.trim());
+      setProblem({ kind, text, from, count: lines.length, head: lines.slice(0, 3) });
       return;
     }
     setProblem(null);
@@ -97,6 +98,8 @@ export function ImportScreen() {
           ${problem.kind === 'foreign' && html`<div><b>Это не снимки PDD</b> (${problem.from}). Нужен текстовый файл PDD.txt из папки Shortcuts в iCloud Drive.</div>`}
           ${problem.kind === 'nomarker' && html`<div><b>Это текст снимка PDD, но без строки ===PDD===.</b> Похоже, «Команда» ещё пробная («Показать результат») или в действии «Текст» нет первой строки ===PDD===. Время нажатия неизвестно — клиента выберете сами.</div>
             <button class="btn primary block" onClick=${() => load(asSingleBlock(problem.text), problem.from)}>Разобрать как один снимок</button>`}
+          <div class="small">Выбрано: <b>${problem.from || '—'}</b> · строк с текстом: <b>${problem.count}</b></div>
+          ${problem.head.length > 0 && html`<pre class="raw">${problem.head.join('\n')}</pre>`}
           <a class="btn block" href="#/help">Как настроить «Команду»</a>
         </div>`}
         <a class="help-link" href="#/help">Как настроить «Команду» на iPhone</a>
