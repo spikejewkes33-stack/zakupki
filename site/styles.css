@@ -237,3 +237,4 @@ details summary { cursor: pointer; }
   background: hsl(var(--h) 75% 90%); color: hsl(var(--h) 65% 26%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (prefers-color-scheme: dark) { .ctag { background: hsl(var(--h) 40% 24%); color: hsl(var(--h) 80% 85%); } }
 .thumb-none { cursor: default; color: var(--muted); }
+.parcels-text { width: 100%; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
