@@ -173,3 +173,26 @@ export const FIELD_LABELS = {
   rateMicro: 'Курс', rounding: 'Округление', archived: 'В архиве', clientIds: 'Клиенты', sessions: 'Порядок оформления',
   opis: 'Опись', contact: 'Контакт',
 };
+
+// Все товары закупки одним списком (вид поверх тех же товаров, ничего не копируется).
+// opts: q — поиск, clientId — только этот клиент, sort — 'client' | 'new' | 'old'.
+// ctx: clientName(id), clientOrder — id клиентов в порядке оформления.
+const addedAt = (it) => String(it.createdAt || it.orderDate || '');
+export function allItemsList(items, { q = '', clientId = '', sort = 'client' } = {}, { clientName = () => '', clientOrder = [] } = {}) {
+  const list = items.filter((it) => !it.deleted && (!clientId || it.clientId === clientId) && matchItem(it, q, clientName(it.clientId)));
+  if (sort === 'new') return list.sort((a, b) => addedAt(b).localeCompare(addedAt(a)) || (b.seq ?? 0) - (a.seq ?? 0));
+  if (sort === 'old') return list.sort((a, b) => addedAt(a).localeCompare(addedAt(b)) || (a.seq ?? 0) - (b.seq ?? 0));
+  const rank = (id) => {
+    const i = clientOrder.indexOf(id);
+    return i < 0 ? clientOrder.length : i;
+  };
+  const byOrder = sortItems(list, 'order');
+  return byOrder.sort((a, b) => rank(a.clientId) - rank(b.clientId) || String(clientName(a.clientId)).localeCompare(String(clientName(b.clientId)), 'ru'));
+}
+
+// Цвет метки клиента: один и тот же у клиента везде (оттенок от его id).
+export function clientHue(id) {
+  let h = 0;
+  for (const ch of String(id || '')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return (h % 12) * 30;
+}

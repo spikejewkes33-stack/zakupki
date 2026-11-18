@@ -2,7 +2,7 @@
 import { html, render, useState, useEffect } from '../vendor/preact-htm.js';
 import { Toasts, PhotoViewer } from './ui.js';
 import * as S from './store.js';
-import { Home, PurchaseList, PurchaseForm, PurchaseScreen, PurchaseClient } from './screens/purchases.js';
+import { Home, PurchaseList, PurchaseForm, PurchaseScreen, PurchaseClient, PurchaseAllItems } from './screens/purchases.js';
 import { ItemForm } from './screens/items.js';
 import { ClientList, ClientCard } from './screens/clients.js';
 import { OpisScreen } from './screens/opis.js';
@@ -30,6 +30,7 @@ function screen({ path, query }) {
   if (path === '/purchases') return html`<${PurchaseList} />`;
   if (path === '/purchase/new') return html`<${PurchaseForm} />`;
   if ((m = path.match(/^\/p\/([^/]+)\/edit$/))) return html`<${PurchaseForm} id=${m[1]} />`;
+  if ((m = path.match(/^\/p\/([^/]+)\/all$/))) return html`<${PurchaseAllItems} id=${m[1]} />`;
   if ((m = path.match(/^\/p\/([^/]+)\/c\/([^/]+)$/))) return html`<${PurchaseClient} pid=${m[1]} cid=${m[2]} />`;
   if ((m = path.match(/^\/p\/([^/]+)$/))) return html`<${PurchaseScreen} id=${m[1]} />`;
   if (path === '/item/new') return html`<${ItemForm} query=${query} />`;

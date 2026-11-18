@@ -13,7 +13,7 @@ function GlobalSearch() {
   </div>`;
 }
 import * as S from '../store.js';
-import { totals, matchItem, STATUSES, sortItems, todayLocal as today } from '../model.js';
+import { totals, matchItem, STATUSES, sortItems, allItemsList, todayLocal as today } from '../model.js';
 import { fmtByn, fmtCny, formatRate, parseRate, ROUNDING_STEPS, ROUNDING_MODES, DEFAULT_ROUNDING } from '../money.js';
 import { openSession, clientsInOrder } from '../order.js';
 
@@ -97,6 +97,7 @@ export function Home() {
           <${PurchaseStats} p=${p} />
           <div class="btn-row">
             <a class="btn" href=${`#/p/${p.id}`}>Клиенты закупки</a>
+            <a class="btn" href=${`#/p/${p.id}/all`}>Все товары</a>
             <a class="btn" href=${`#/opis/${p.id}`}>Опись</a>
           </div>
         </section>
@@ -221,6 +222,7 @@ export function PurchaseScreen({ id }) {
       <div class="muted small">${dateRu(p.startDate)}${p.endDate ? ` — ${dateRu(p.endDate)}` : ''} · 1 ¥ = ${formatRate(p.rateMicro)} BYN · ${roundingLabel(p.rounding)}</div>
       <${PurchaseStats} p=${p} />
       <div class="btn-row">
+        <a class="btn" href=${`#/p/${p.id}/all`}>Все товары</a>
         <a class="btn" href=${`#/opis/${p.id}`}>Опись</a>
         ${!ro && !active && html`<button class="btn" onClick=${() => S.saveSettings({ activePurchaseId: p.id })}>Сделать активной</button>`}
       </div>
@@ -325,6 +327,40 @@ export function PurchaseClient({ pid, cid }) {
     </div>
     <div class="list">${list.map((it) => html`<${ItemRow} item=${it} />`)}</div>
     ${!list.length && html`<${Empty}>${all.length ? 'Ничего не найдено' : 'Товаров пока нет'}</${Empty}>`}
+  </main>`;
+}
+
+// Все товары всех клиентов закупки одним списком: у каждого товара подписан клиент.
+// Это вид поверх тех же товаров: нажатие открывает карточку товара, правка видна везде.
+export function PurchaseAllItems({ id }) {
+  const p = S.purchaseById(id);
+  const [q, setQ] = useState('');
+  const [cid, setCid] = useState('');
+  const [sort, setSort] = useState('client');
+  if (!p) return html`<${Header} title="Все товары" back="/purchases" /><main><${Empty}>Закупка не найдена</${Empty}></main>`;
+  const items = S.itemsOf(p.id);
+  const order = clientsInOrder(p);
+  const withItems = [...new Set([...order, ...items.map((x) => x.clientId)])].filter((c) => items.some((x) => x.clientId === c));
+  const list = allItemsList(items, { q, clientId: cid, sort }, { clientName: S.clientName, clientOrder: order });
+  const t = totals(list, S.purchaseById);
+  return html`<${Header} title="Все товары" back=${`/p/${p.id}`} />
+  <main>
+    <div class="muted small">${p.name} · ${items.length} тов. · ${withItems.length} клиентов</div>
+    <div class="filters">
+      <${Search} value=${q} onInput=${setQ} placeholder="Товар, трек, номер заказа, клиент" />
+      <select value=${cid} onChange=${(e) => setCid(e.target.value)} aria-label="Клиент">
+        <option value="">Все клиенты</option>
+        ${withItems.map((c) => html`<option value=${c}>${S.clientName(c)} (${items.filter((x) => x.clientId === c).length})</option>`)}
+      </select>
+      <select value=${sort} onChange=${(e) => setSort(e.target.value)} aria-label="Сортировка">
+        <option value="client">По клиентам</option>
+        <option value="new">Сначала новые</option>
+        <option value="old">Сначала старые</option>
+      </select>
+    </div>
+    ${(q.trim() || cid) && html`<p class="muted small">Найдено: ${t.count} · ${fmtByn(t.kop)}</p>`}
+    <div class="list">${list.map((it) => html`<${ItemRow} item=${it} clientTag=${true} />`)}</div>
+    ${!list.length && html`<${Empty}>${items.length ? 'Ничего не найдено' : 'Товаров пока нет'}</${Empty}>`}
   </main>`;
 }
 

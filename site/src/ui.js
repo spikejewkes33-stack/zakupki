@@ -2,7 +2,7 @@
 import { html, useState, useEffect, useRef } from '../vendor/preact-htm.js';
 import * as S from './store.js';
 import { fmtByn, fmtCny, itemMoney } from './money.js';
-import { statusShort, itemTitle } from './model.js';
+import { statusShort, itemTitle, clientHue } from './model.js';
 import { saveFile } from './export.js';
 
 export { html, useState, useEffect, useRef };
@@ -76,14 +76,20 @@ function Thumb({ id }) {
   </button>`;
 }
 
-// Строка товара в списке.
-export function ItemRow({ item, showClient, showPurchase }) {
+// Метка клиента: имя на цветном фоне, цвет у клиента всегда один.
+export function ClientTag({ id }) {
+  return html`<span class="ctag" style=${`--h:${clientHue(id)}`}>${S.clientName(id)}</span>`;
+}
+
+// Строка товара в списке. clientTag — имя клиента крупной цветной меткой (общий список товаров).
+export function ItemRow({ item, showClient, showPurchase, clientTag }) {
   const p = S.purchaseById(item.purchaseId);
   const m = itemMoney(item, p);
   const variant = [item.color, item.size, item.kit].filter(Boolean).join(' · ');
   return html`<a class="row item-row" href=${`#/item/${item.id}`}>
-    ${item.photoId && html`<${Thumb} id=${item.photoId} />`}
+    ${item.photoId ? html`<${Thumb} id=${item.photoId} />` : clientTag && html`<span class="thumb thumb-none" aria-hidden="true">📷</span>`}
     <div class="row-main">
+      ${clientTag && html`<${ClientTag} id=${item.clientId} />`}
       <div class="row-title">${itemTitle(item)}${!item.name ? html` <span class="chip s2">впишите название</span>` : ''}</div>
       ${variant && html`<div class="row-sub">${variant}</div>`}
       ${showClient && html`<div class="row-sub">${S.clientName(item.clientId)}${showPurchase ? ` · ${p?.name || ''}` : ''}</div>`}
