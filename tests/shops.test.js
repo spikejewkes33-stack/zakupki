@@ -20,6 +20,9 @@ test('образцы Taobao и Poizon узнаются', () => {
   assert.equal(detectShop(lines(fx('taobao-logistika.txt'))), 'taobao');
   assert.equal(detectShop(lines(fx('poizon-zakaz.txt'))), 'poizon');
   assert.equal(detectShop(lines(fx('poizon-zakaz-stolbcy.txt'))), 'poizon');
+  // список заказов на русском и логистика куртки — 1688 (пользователь, 18.11); логистика у Taobao и 1688 одна — подпись taobao
+  assert.equal(detectShop(lines(fx('taobao-spisok-ru.txt'))), '1688');
+  assert.equal(detectShop(lines(fx('taobao-logistika-lenta.txt'))), 'taobao');
   // без названия приложения: Poizon по «交易编号» + «快递单号», Taobao по «支付宝交易号»
   assert.equal(detectShop(['交易编号', '570000000000000000000000001', '快递单号', 'SF1000000000001']), 'poizon');
   assert.equal(detectShop(['支付宝交易号', '2026110600000000000000000001']), 'taobao');
@@ -108,7 +111,7 @@ test('PDD: имя магазина в карточке не затирается
   assert.equal(plan.newItems[0].shop, '小熊饼干童装店');
 });
 
-test('1688 пока не разбирается, но и не теряется: в «Не понял» с понятной причиной', () => {
+test('непонятный снимок 1688 не теряется: в «Не понял» с понятной причиной', () => {
   const file = `${BLOCK_MARK}\n2026-11-18T10:00:00+03:00\n阿里巴巴\n订单详情\n`;
   const plan = buildPlan(splitBlocks(file), empty());
   assert.equal(plan.newItems.length, 0);
@@ -116,7 +119,7 @@ test('1688 пока не разбирается, но и не теряется: 
   assert.match(plan.unknown[0].doubts[0], /1688/);
 });
 
-// Заготовки: снять .todo, когда пользователь пришлёт снимки 1688 (текст положить в tests/fixtures/).
-test.todo('1688: экран заказа (订单详情) → название, вариант, количество, сумма, номер заказа');
-test.todo('1688: экран логистики → перевозчик и трек, номер заказа');
-test.todo('Taobao, Poizon: сверить с настоящим текстом из «Команды» (сейчас модель по скриншотам)');
+// Заготовки: снять .todo, когда придут снимки (текст положить в tests/fixtures/).
+test.todo('1688: экран деталей заказа (видели только список и логистику)');
+test.todo('Taobao: экран логистики (сейчас считаем, что как у 1688) и список заказов');
+test.todo('Taobao, 1688, Poizon: сверить с настоящим текстом из «Команды» (сейчас модель по скриншотам)');

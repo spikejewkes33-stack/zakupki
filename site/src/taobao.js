@@ -1,5 +1,9 @@
-// Снимки Taobao (淘宝): экран заказа (交易成功 и т. п.) и экран логистики.
-// Сделано по трём скриншотам пользователя 18.11.2026 (модель текста — tests/fixtures/taobao-*.txt).
+// Снимки Taobao (淘宝) и 1688: экраны у них от одного Alibaba и почти одинаковые, поэтому разбор один
+// и идёт по полям (订单编号, служба + трек, 含运费/总实付, 实付价/实付款, 包裹商品明细), а не по приложению.
+// Какое это приложение — только подпись в сообщениях (app), на разбор не влияет.
+// Видели (скриншоты пользователя 18.11.2026, модель текста — tests/fixtures/taobao-*.txt, предположение):
+//   Taobao — экран деталей заказа (платье); 1688 — список заказов на русском и экран логистики (куртка).
+// Логистику Taobao не видели: считаем, что она как у 1688 (тот же движок) — проверить на первом снимке.
 // Экран заказа: магазин, название, вариант, «x1», цена, «实付价 ¥47» (сумма товара — берём её, а не 商品总价),
 // 运费 (доставка по Китаю), «实付款» (всё вместе), номер заказа в строке «订单信息».
 // Экран логистики: «韵达快递 4321…» (без двоеточия), «订单编号: 3316…», во всплывающем окне — состав посылки.
@@ -11,11 +15,15 @@ const VARIANT = /[;；]|颜色|尺码|规格|分类|[:：]/;
 // Перевозчик и трек в одной строке: «韵达快递 4321…», «中通快递：7000…». Не телефон курьера («电联快递员：…»).
 const CARRIER = /((?:[一-龥]{2,8}?(?:快递|速递|快运|物流|速运|邮政|特快))|EMS)\s*[:：]?\s*([A-Za-z0-9][A-Za-z0-9 ]{6,40}[A-Za-z0-9])/;
 
-export function parseTaobao(lines) {
+export function parseTaobao(lines, app = 'taobao') {
+  const r = parseAny(lines);
+  return { ...r, app, doubts: r.kind === 'unknown' ? [`снимок ${app === '1688' ? '1688' : 'Taobao/1688'}: ${r.doubts[0]}`] : r.doubts };
+}
+function parseAny(lines) {
   if (lines.some((l) => /总实付/.test(l))) return parseOrderList(lines);
   if (lines.some((l) => /实付价|商品总价|价格明细/.test(l))) return parseOrder(lines);
   if (lines.some((l) => CARRIER.test(l))) return parseLogistics(lines);
-  return { kind: 'unknown', app: 'taobao', doubts: ['снимок Taobao, но не экран заказа и не экран логистики'] };
+  return { kind: 'unknown', doubts: ['не экран заказа, не список заказов и не экран логистики'] };
 }
 
 function parseOrder(lines) {
@@ -66,7 +74,7 @@ function parseOrder(lines) {
   if (qty > 1) doubts.push('проверьте сумму: «实付价» — за все штуки или за одну (видели только заказ на 1 шт.)');
   const orderNo = longOrderNo(lines);
   if (!orderNo) doubts.push('нет номера заказа — раскройте «订单信息» и снимите ещё раз; без него трек не привяжется');
-  return { kind: 'order', app: 'taobao', orderNo, nameCn, shop, variant, qty, paidFen, priceFen, titleIdx, track: '', carrier: '', status: 1, doubts };
+  return { kind: 'order', orderNo, nameCn, shop, variant, qty, paidFen, priceFen, titleIdx, track: '', carrier: '', status: 1, doubts };
 }
 
 function parseLogistics(lines) {
@@ -86,7 +94,7 @@ function parseLogistics(lines) {
   const orderNo = longOrderNo(lines);
   const doubts = [];
   if (!orderNo) doubts.push('нет номера заказа — привяжу по треку, если он уже есть в карточке');
-  return { kind: 'logistics', app: 'taobao', carrier: carrier ? carrierLabel(carrier) : '', track, orderNo, goods: packageGoods(lines), ...logisticsStatus(lines), doubts };
+  return { kind: 'logistics', carrier: carrier ? carrierLabel(carrier) : '', track, orderNo, goods: packageGoods(lines), ...logisticsStatus(lines), doubts };
 }
 
 // Состав посылки во всплывающем окне «包裹商品明细»: название, вариант, «x2». Нужен, когда номера заказа
@@ -111,7 +119,7 @@ function packageGoods(lines) {
 // Интерфейс бывает китайский или русский (снимок 18.11: кнопки по-русски, итоги по-китайски).
 // Карточка заказа кончается строкой «含运费¥5.00 总实付 ¥457.77»: 总实付 — итог с доставкой,
 // сумма товара = итог − доставка; «¥228.00» — цена за штуку, «×2» — количество.
-// Источник (Taobao или 1688 в русском интерфейсе) пока уточняется.
+// Такой список на русском видели у 1688 (18.11); у Taobao, вероятно, такой же.
 const LIST_NOISE = /^\d{1,2}:\d{2}$|^(?:3G|4G|5G|LTE)\b|搜索我的订单|正在加载|Ожидает отправки|Возврат\/обмен|^(?:Доставка|Отправлено|Ожидает|待收货|待发货|已发货|卖家已发货|交易成功|待付款|退款中)$|Возврат товара|退货包运费|运费险|^Больше$|^更多$|Проверить|Повтор|Подтверд|получе|查看物流|再买一单|确认收货|延长收货|加入购物车|评价/;
 const SHOP_LINE = /[>〉]\s*$|店铺?$|旗舰|专营|商行|工厂|Shop|Store/i;
 function parseOrderList(lines) {
@@ -127,8 +135,8 @@ function parseOrderList(lines) {
     i = end;
   }
   const items = cards.filter((c) => c.nameCn || c.paidFen != null);
-  if (!items.length) return { kind: 'unknown', app: 'taobao', doubts: ['список заказов, но ни одного товара не разобрал'] };
-  return { kind: 'orderList', app: 'taobao', items, doubts: [] };
+  if (!items.length) return { kind: 'unknown', doubts: ['список заказов, но ни одного товара не разобрал'] };
+  return { kind: 'orderList', items, doubts: [] };
 }
 function listCard(lines, from, totalAt, end) {
   const idx = [];
