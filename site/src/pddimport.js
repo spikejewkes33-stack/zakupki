@@ -6,6 +6,7 @@
 // Ничего не додумывается: что не распознано — показывается пользователю.
 import { clientForTime } from './order.js';
 import { ruName, nameFromTranslation } from './names.js';
+import { detectShop, PARSERS } from './shops.js';
 
 export const BLOCK_MARK = '===PDD===';
 
@@ -298,6 +299,13 @@ export function classify(lines) {
   return { kind: 'unknown', doubts: ['не похоже ни на экран заказа, ни на экран логистики — возможно, снимок попал на переход между экранами'] };
 }
 
+// Снимок любого приложения: PDD разбирается как раньше, 1688 / Poizon / Taobao — своим разборщиком (shops.js).
+export function classifyAny(lines) {
+  const shop = detectShop(lines);
+  if (shop !== 'pdd') return PARSERS[shop](lines);
+  return { ...classify(lines), shop };
+}
+
 const norm = (s) => String(s || '').replace(/\s+/g, '').toUpperCase();
 
 // План: что добавить, что обновить, что не понято. Чистая функция — проверяется тестами.
@@ -333,7 +341,7 @@ export function buildPlan(blocks, ctx) {
       continue;
     }
     seenBlocks.add(b.id);
-    parsed.push({ block: b, r: classify(b.lines) });
+    parsed.push({ block: b, r: classifyAny(b.lines) });
   }
 
   // 1. Экраны заказа → новые карточки или дополнение существующих.
