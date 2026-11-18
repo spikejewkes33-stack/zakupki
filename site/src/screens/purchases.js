@@ -14,7 +14,7 @@ function GlobalSearch() {
   </div>`;
 }
 import * as S from '../store.js';
-import { totals, matchItem, STATUSES, sortItems, allItemsList, todayLocal as today } from '../model.js';
+import { totals, cargoTotals, matchItem, STATUSES, sortItems, allItemsList, todayLocal as today } from '../model.js';
 import { fmtByn, fmtCny, formatRate, parseRate, ROUNDING_STEPS, ROUNDING_MODES, DEFAULT_ROUNDING } from '../money.js';
 import { openSession, clientsInOrder } from '../order.js';
 
@@ -35,6 +35,26 @@ function PurchaseStats({ p }) {
   </div>
   <p class="muted small">Всего штук: ${t.qty}</p>
   ${t.noPrice > 0 && html`<p class="warn-text small">Без цены: ${t.noPrice} — они не вошли в суммы.</p>`}`;
+}
+
+// Разбивка активной закупки по карго (есть, только если карго заведены): штуки, отправлено, сумма.
+// Считается теми же totals(), что и плитки выше, поэтому «Итого» совпадает с «сумма, ¥/BYN».
+function CargoCards({ p }) {
+  const cargos = S.cargoList();
+  if (!cargos.length) return null;
+  const { groups, all } = cargoTotals(S.itemsOf(p.id), { cargos, cargoOf: (id) => S.state.clients.get(id)?.cargoId || '', purchaseById: S.purchaseById });
+  const card = (icon, name, t, tone = '') => html`<div class="cargo-card ${tone}">
+    <div class="cargo-card-h"><span class="cargo-ico" aria-hidden="true">${icon}</span><b>${name}</b></div>
+    <div class="small">Всего штук: <b>${t.qty}</b></div>
+    <div class="small">Отправлено: <b>${t.shippedQty}</b></div>
+    <div class="cargo-sum">${fmtCny(t.fen)}</div>
+    <div class="cargo-sum accent-text">${fmtByn(t.kop)}</div>
+    ${t.noPrice > 0 && html`<div class="warn-text small">без цены: ${t.noPrice}</div>`}
+  </div>`;
+  return html`<section class="cargo-cards" aria-label="По карго">
+    ${groups.map((g) => (g.cargo ? card('📦', g.cargo.name, g.t) : card('❔', 'Без карго', g.t, 'none')))}
+    ${card('🧮', 'Итого', all, 'total')}
+  </section>`;
 }
 
 // Порядок оформления: кто сейчас оформляется и кнопка «Завершить заказы клиента».
@@ -102,6 +122,7 @@ export function Home() {
             <a class="btn" href=${`#/opis/${p.id}`}>Опись</a>
           </div>
         </section>
+        <${CargoCards} p=${p} />
         <section class="card take">
           <div><b>Сделали снимки Кнопкой действия?</b> Сами в приложение они не попадают — нажмите:</div>
           <a class="btn primary block big" href="#/import">📥 Забрать из PDD</a>

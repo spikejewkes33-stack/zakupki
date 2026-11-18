@@ -246,3 +246,13 @@ details summary { cursor: pointer; }
 .client-row select { flex: none; width: auto; max-width: 42%; min-height: 36px; padding: 4px 8px; font-size: 14px; }
 .cargo-edit { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
 .cargo-edit input { flex: 1; min-width: 0; }
+/* Главная: карточки по карго */
+.cargo-cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.cargo-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cargo-card-h { display: flex; align-items: center; gap: 6px; overflow: hidden; }
+.cargo-card-h b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cargo-ico { font-size: 18px; flex: none; }
+.cargo-sum { font-weight: 700; font-variant-numeric: tabular-nums; }
+.cargo-card .accent-text { color: var(--accent); }
+.cargo-card.none { border-style: dashed; }
+.cargo-card.total { border-color: var(--accent); grid-column: 1 / -1; }

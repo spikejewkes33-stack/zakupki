@@ -114,7 +114,7 @@ export function parcelNote(track, allItems, selfId) {
 
 // Итоги по набору товаров (закупка или клиент в закупке). purchaseById — для курса каждого товара.
 export function totals(items, purchaseById) {
-  const t = { count: 0, qty: 0, fen: 0, kop: 0, noPrice: 0, waiting: 0, shipped: 0, withTrack: 0, noTrack: 0 };
+  const t = { count: 0, qty: 0, fen: 0, kop: 0, noPrice: 0, waiting: 0, shipped: 0, shippedQty: 0, withTrack: 0, noTrack: 0 };
   for (const it of items) {
     if (it.deleted) continue;
     const m = itemMoney(it, purchaseById(it.purchaseId));
@@ -124,11 +124,27 @@ export function totals(items, purchaseById) {
     else t.fen += m.totalFen;
     if (m.totalKop != null) t.kop += m.totalKop;
     if (it.status <= 2) t.waiting += 1;
-    if (it.status >= 3) t.shipped += 1;
+    if (it.status >= 3) {
+      t.shipped += 1;
+      t.shippedQty += m.qty;
+    }
     if (it.track) t.withTrack += 1;
     else t.noTrack += 1;
   }
   return t;
+}
+
+// Разбивка закупки по карго: те же totals() по товарам клиентов каждого карго.
+// Товары клиентов без карго (или с удалённым карго) — в группе «Без карго», она есть, только если не пустая.
+// Каждый товар попадает ровно в одну группу, поэтому суммы групп складываются в общий итог (all).
+export function cargoTotals(items, { cargos = [], cargoOf = () => '', purchaseById }) {
+  const live = items.filter((it) => !it.deleted);
+  const known = new Set(cargos.map((c) => c.id));
+  const key = (it) => (known.has(cargoOf(it.clientId)) ? cargoOf(it.clientId) : '');
+  const groups = cargos.map((c) => ({ cargo: c, t: totals(live.filter((it) => key(it) === c.id), purchaseById) }));
+  const none = live.filter((it) => key(it) === '');
+  if (none.length) groups.push({ cargo: null, t: totals(none, purchaseById) });
+  return { groups, all: totals(live, purchaseById) };
 }
 
 // Поиск по товару: название, цвет, размер, комплектация, номер заказа, трек, имя клиента.
