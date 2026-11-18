@@ -7,7 +7,7 @@
 import { clientForTime } from './order.js';
 import { ruName, nameFromTranslation } from './names.js';
 import { detectShop, PARSERS } from './shops.js';
-import { fixNumbers, carrierLabel, toFen, MONEY, logisticsStatus } from './ocr.js';
+import { fixNumbers, carrierLabel, toFen, MONEY, logisticsStatus, sameGoods } from './ocr.js';
 
 export { carrierLabel };
 
@@ -271,6 +271,8 @@ export function classify(lines) {
 
 // Снимок любого приложения: PDD разбирается как раньше, 1688 / Poizon / Taobao — своим разборщиком (shops.js).
 export function classifyAny(lines) {
+  // Чат с продавцом («请确认收货地址», «你可能想咨询该订单») — не заказ: цены там другие, пропускаем.
+  if (lines.some((l) => /请确认收货地址|你可能想咨询/.test(l))) return { kind: 'unknown', app: '', doubts: ['это снимок чата с продавцом, не заказа — пропускаю'] };
   const shop = detectShop(lines);
   if (shop !== 'pdd') return PARSERS[shop](lines);
   return { ...classify(lines), app: shop };
@@ -311,11 +313,14 @@ export function buildPlan(blocks, ctx) {
       continue;
     }
     seenBlocks.add(b.id);
-    parsed.push({ block: b, r: classifyAny(b.lines) });
+    const r = classifyAny(b.lines);
+    // Список заказов: каждый товар — как отдельный заказ без номера (ключ карточки — блок + номер товара).
+    if (r.kind === 'orderList') r.items.forEach((x, k) => parsed.push({ block: b, key: `${b.id}:${k}`, r: { kind: 'order', fromList: true, orderNo: '', track: '', carrier: '', status: 1, ...x } }));
+    else parsed.push({ block: b, key: b.id, r });
   }
 
   // 1. Экраны заказа → новые карточки или дополнение существующих.
-  for (const { block, r } of parsed) {
+  for (const { block, key, r } of parsed) {
     if (r.kind !== 'order') continue;
     if (!r.orderNo && !r.nameCn) {
       plan.unknown.push({ blockId: block.id, time: block.time, preview: block.lines.slice(0, 6), doubts: r.doubts });
@@ -323,8 +328,14 @@ export function buildPlan(blocks, ctx) {
     }
     const remembered = ctx.translations?.[r.nameCn] || '';
     const fromDict = remembered ? '' : ruName(r.nameCn, r.variant);
-    const fromMt = remembered || fromDict ? '' : nameFromTranslation(block.ru, block.lines.length, r.titleIdx);
+    // Название уже по-русски от самого приложения (машинный перевод) — переводить нечего, пусть впишут.
+    const fromMt = remembered || fromDict || r.machineRu ? '' : nameFromTranslation(block.ru, block.lines.length, r.titleIdx);
     const ru = remembered || fromDict || fromMt;
+    // Товар со списка заказов (без номера), похожий на уже забранный (тот же товар, вариант и количество):
+    // скорее всего, тот же список сняли ещё раз. Показываем без галочки — вдруг это второй такой же заказ.
+    // Внутри одного снимка одинаковые карточки — разные заказы, их не трогаем.
+    const seenGoods = r.fromList && (live.some((x) => !x.pddOrderNo && sameGoods(x, r))
+      || plan.newItems.some((n) => n.blockId !== block.id && !n.pddOrderNo && sameGoods(n, r)));
     const exist = byOrder(r.orderNo);
     if (exist) {
       // Карточка уже есть (сделана вручную или прошлым снимком) — дополняем только пустые поля.
@@ -341,7 +352,7 @@ export function buildPlan(blocks, ctx) {
       continue;
     }
     // Без номера заказа дубль узнаём по тому же названию и сумме с разницей во времени до 2 минут (двойное нажатие).
-    const near = (n) => !r.orderNo && !n.pddOrderNo && n.nameCn === r.nameCn && n.paidFen === r.paidFen
+    const near = (n) => n.blockId !== block.id && !r.orderNo && !n.pddOrderNo && n.nameCn === r.nameCn && n.paidFen === r.paidFen
       && Math.abs(Date.parse(n.time || 0) - Date.parse(block.time || 0)) <= 120000;
     const dup = plan.newItems.find((n) => (r.orderNo && n.pddOrderNo === r.orderNo) || near(n));
     if (dup) {
@@ -354,11 +365,13 @@ export function buildPlan(blocks, ctx) {
     }
     const w = whereAndWho(block.time);
     plan.newItems.push({
-      blockId: block.id, time: block.time, purchaseId: w.purchaseId, clientId: w.clientId, clientBy: w.by,
+      key, blockId: block.id, time: block.time, purchaseId: w.purchaseId, clientId: w.clientId, clientBy: w.by,
       nameCn: r.nameCn, name: ru, nameAuto: !remembered && !!ru, nameFrom: remembered ? 'memory' : fromDict ? 'dict' : fromMt ? 'mt' : '', variant: r.variant, shop: r.shop,
       qty: r.qty, paidFen: r.paidFen, pddOrderNo: r.orderNo, doubts: w.doubt ? [...r.doubts, w.doubt] : r.doubts,
       track: r.track || '', carrier: r.carrier || '', status: r.status || 1, image: block.image || '',
+      ...(seenGoods ? { skip: true } : {}),
     });
+    if (seenGoods) plan.newItems[plan.newItems.length - 1].doubts = ['похоже, этот товар уже забирали со списка заказов — не добавляю; поставьте галочку «Добавить», если это другой заказ', ...plan.newItems[plan.newItems.length - 1].doubts];
   }
 
   // 2. Экраны логистики → трек к карточке (новой из этого же файла или существующей), иначе — ждать карточку.
@@ -366,8 +379,32 @@ export function buildPlan(blocks, ctx) {
     const n = plan.newItems.find((x) => t.orderNo && x.pddOrderNo === t.orderNo);
     if (n) {
       Object.assign(n, { track: t.track, carrier: t.carrier, status: Math.max(n.status, t.status), extraBlocks: [...(n.extraBlocks || []), t.blockId] });
-      return { newBlockId: n.blockId };
+      return { newKey: n.key };
     }
+    if (t.orderNo && byOrder(t.orderNo)) return attachExisting(t);
+    // Номер заказа не совпал ни с одной карточкой, но на экране логистики есть состав посылки:
+    // ищем товар без номера заказа и без трека (со списка заказов) по названию, варианту и количеству.
+    // Только предложение: трек запишется, если пользователь поставит галочку.
+    const g = t.goods?.length === 1 ? t.goods[0] : null;
+    if (g) {
+      const nn = plan.newItems.filter((x) => !x.pddOrderNo && !x.track && !x.trackGuess && sameGoods(x, g));
+      if (nn.length === 1) {
+        nn[0].trackGuess = { ...t };
+        return { newKey: nn[0].key, guess: true };
+      }
+      const ex = live.filter((x) => !x.pddOrderNo && !x.track && sameGoods(x, g));
+      if (ex.length === 1 && !plan.tracks.some((x) => x.itemId === ex[0].id)) {
+        const patch = { track: t.track };
+        if (t.carrier) patch.carrier = t.carrier;
+        if ((ex[0].status || 1) < t.status) patch.status = t.status;
+        if (t.orderNo) patch.pddOrderNo = t.orderNo;
+        plan.tracks.push({ ...t, itemId: ex[0].id, patch, replaces: '', byName: true, skip: true });
+        return { trackBlockId: t.blockId };
+      }
+    }
+    return t.orderNo ? null : attachExisting(t);
+  };
+  const attachExisting = (t) => {
     // Без номера заказа (страница «поделиться») — по треку: все товары этой посылки.
     if (!t.orderNo) {
       const all = byTrack(t.track);
@@ -403,7 +440,7 @@ export function buildPlan(blocks, ctx) {
       plan.unknown.push({ blockId: block.id, time: block.time, preview: block.lines.slice(0, 6), doubts: ['экран логистики без трека'] });
       continue;
     }
-    const t = { blockId: block.id, time: block.time, orderNo: r.orderNo, track: r.track, carrier: r.carrier, status: r.status, statusWord: r.statusWord };
+    const t = { blockId: block.id, time: block.time, orderNo: r.orderNo, track: r.track, carrier: r.carrier, status: r.status, statusWord: r.statusWord, ...(r.goods?.length ? { goods: r.goods } : {}) };
     if (!attach(t)) plan.pending.push(t);
   }
   // 3. Треки, ждавшие карточку с прошлых раз.

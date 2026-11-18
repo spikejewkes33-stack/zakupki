@@ -70,3 +70,18 @@ export function carrierByTrack(track) {
   const hit = TRACK_PREFIX.find(([re]) => re.test(track));
   return hit ? carrierLabel(hit[1]) : '';
 }
+
+// Тот же ли это товар (когда номера заказа нет: список заказов ↔ состав посылки на экране логистики).
+// Названия обрезаны «…» в разных местах — одно должно быть началом другого (не короче 6 знаков);
+// варианты сравниваются без пробелов и знаков («颜色:棕色--26016 尺码:L» = «颜色:棕色--26016; 尺码:L»);
+// количество должно совпасть. Это догадка — пользователь подтверждает её галочкой.
+const squash = (s) => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+export function sameGoods(a, b) {
+  const x = squash(a.nameCn);
+  const y = squash(b.nameCn);
+  if (Math.min(x.length, y.length) < 6 || !(x.startsWith(y) || y.startsWith(x))) return false;
+  const va = squash(a.variant);
+  const vb = squash(b.variant);
+  if (va && vb && va !== vb) return false;
+  return (a.qty || 1) === (b.qty || 1);
+}

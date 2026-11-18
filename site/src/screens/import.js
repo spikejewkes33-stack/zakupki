@@ -75,9 +75,14 @@ function NewItemCard({ n, update, multiPurchase }) {
         onChange=${(e) => { const v = parseCents(e.target.value); update({ paidFen: Number.isNaN(v) ? n.paidFen : v }); }} /></label>
     </div>
     <div class="small">${fmtCny(m.totalFen)} → ${fmtByn(m.totalKop)}${n.qty > 1 ? ` · за 1 шт ≈ ${fmtCny(m.unitFen)}` : ''}</div>
+    ${n.trackGuess && html`<label class="check warn-text small"><input type="checkbox" checked=${n.track === n.trackGuess.track}
+      onChange=${(e) => update(e.target.checked
+        ? { track: n.trackGuess.track, carrier: n.trackGuess.carrier, status: Math.max(1, n.trackGuess.status), pddOrderNo: n.trackGuess.orderNo || '' }
+        : { track: '', carrier: '', status: 1, pddOrderNo: '' })} />
+      <span>Трек <b class="mono">${n.trackGuess.track}</b> найден по названию, варианту и количеству — это он? Поставьте галочку, если да.</span></label>`}
     ${n.track ? html`<div class="small">Трек: <b class="mono">${n.track}</b> · ${n.carrier} · ${statusLabel(n.status)}</div>`
-      : html`<div class="muted small">Трека пока нет — появится, когда продавец отправит (снимите этот заказ ещё раз).</div>`}
-    <details class="muted small"><summary>Из PDD</summary><div>${n.nameCn || '—'}</div>${n.variant && html`<div>Вариант: ${n.variant}</div>`}<div>Заказ ${n.pddOrderNo || '—'}</div></details>
+      : !n.trackGuess && html`<div class="muted small">Трека пока нет — появится, когда продавец отправит (снимите этот заказ ещё раз).</div>`}
+    <details class="muted small"><summary>Со снимка</summary><div>${n.nameCn || '—'}</div>${n.variant && html`<div>Вариант: ${n.variant}</div>`}<div>Заказ ${n.pddOrderNo || '—'}</div></details>
     ${n.doubts.length > 0 && html`<div class="warn-text small">Проверьте: ${n.doubts.join('; ')}</div>`}
     ${snap && html`<${SnapshotPicker} image=${n.image} onClose=${() => setSnap(false)}
       onPick=${(blob) => { setSnap(false); update({ photoBlob: blob, photoUrl: URL.createObjectURL(blob), photoTried: true }); }} />`}
@@ -207,7 +212,7 @@ export function ImportScreen() {
     </section>
 
     ${plan.newItems.length > 0 && html`<h3>Новые товары</h3>
-      ${plan.newItems.map((n, i) => html`<${NewItemCard} key=${n.blockId} n=${n} multiPurchase=${multiPurchase} update=${(patch) => setNew(i, patch)} />`)}`}
+      ${plan.newItems.map((n, i) => html`<${NewItemCard} key=${n.key || n.blockId} n=${n} multiPurchase=${multiPurchase} update=${(patch) => setNew(i, patch)} />`)}`}
 
     ${plan.updates.some((u) => Object.keys(u.patch).length || u.photoBlob) && html`<h3>Дополню ваши карточки</h3>
       <div class="list">${plan.updates.filter((u) => Object.keys(u.patch).length || u.photoBlob).map((u) => {
@@ -225,6 +230,7 @@ export function ImportScreen() {
           <div class="row-main"><div class="row-title mono">${t.track}</div>
             <div class="row-sub">${itemTitle(it)} · ${S.clientName(it.clientId)} · ${t.carrier} · ${statusLabel(Math.max(it.status, t.status))}</div>
             ${t.replaces && html`<div class="warn-text small">Заменит трек ${t.replaces}</div>`}
+            ${t.byName && html`<div class="warn-text small">Найден по названию, варианту и количеству (номера заказа нет) — поставьте галочку, если это он</div>`}
             ${!Object.keys(t.patch).length && html`<div class="muted small">уже записан</div>`}</div>
         </label>`;
       })}</div>`}

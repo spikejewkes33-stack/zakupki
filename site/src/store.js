@@ -246,6 +246,15 @@ export async function applyImport(plan) {
     created += 1;
     done.push(n.blockId, ...(n.extraBlocks || []).filter((b) => !(plan.pendingResolved || []).some((t) => t.blockId === b)));
   }
+  // Трек, предложенный по названию (список заказов ↔ логистика): принят — снимок логистики забран,
+  // не принят — трек ждёт дальше, как трек без карточки.
+  const guessPending = [];
+  for (const n of plan.newItems) {
+    const g = n.trackGuess;
+    if (!g || (plan.pendingResolved || []).some((t) => t.blockId === g.blockId)) continue;
+    if (!n.skip && n.track === g.track) done.push(g.blockId);
+    else guessPending.push(g);
+  }
   for (const u of plan.updates) {
     const patch = { ...u.patch };
     if (u.photoBlob) patch.photoId = await savePhoto(u.photoBlob);
@@ -259,10 +268,10 @@ export async function applyImport(plan) {
   }
   for (const t of plan.pending) done.push(t.blockId);
   // Трек, ждавший карточку, убираем из «ждут» только если его действительно записали (галочки не сняты).
-  const applied = (t) => (t.via?.newBlockId ? plan.newItems.some((n) => n.blockId === t.via.newBlockId && !n.skip)
+  const applied = (t) => (t.via?.newKey ? plan.newItems.some((n) => n.key === t.via.newKey && !n.skip && (!t.via.guess || n.track === t.track))
     : plan.tracks.some((x) => x.blockId === t.via?.trackBlockId && !x.skip));
   const resolved = new Set((plan.pendingResolved || []).filter(applied).map((t) => t.blockId));
-  const pending = [...state.importInfo.pending.filter((t) => !resolved.has(t.blockId)), ...plan.pending];
+  const pending = [...state.importInfo.pending.filter((t) => !resolved.has(t.blockId)), ...plan.pending, ...guessPending];
   await saveImportInfo({ blockIds: [...new Set([...state.importInfo.blockIds, ...done])], pending, lastImportAt: nowIso() });
   return { created, tracks: plan.tracks.filter((t) => !t.skip && Object.keys(t.patch).length).length + plan.newItems.filter((n) => !n.skip && n.track).length };
 }
