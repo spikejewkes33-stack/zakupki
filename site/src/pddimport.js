@@ -7,6 +7,9 @@
 import { clientForTime } from './order.js';
 import { ruName, nameFromTranslation } from './names.js';
 import { detectShop, PARSERS } from './shops.js';
+import { fixNumbers, carrierLabel, toFen, MONEY, logisticsStatus } from './ocr.js';
+
+export { carrierLabel };
 
 export const BLOCK_MARK = '===PDD===';
 
@@ -81,13 +84,6 @@ export function diagnoseText(text) {
 export const asSingleBlock = (text) => `${BLOCK_MARK}\n${String(text || '').trim()}\n`;
 
 // ——— Шаблоны ———
-// Распознавание может вставить пробел или длинное тире в номер: «261116 — 3000 0000…». Чиним перед поиском.
-function fixNumbers(line) {
-  return String(line)
-    .replace(/[—–－‐‑]/g, '-')
-    .replace(/(\d)\s*-\s*(\d)/g, '$1-$2')
-    .replace(/(\d)\s+(?=\d)/g, '$1');
-}
 const ORDER_NO = /(\d{6}-\d{10,20})/;
 const PRICE_LINE = /^(?:券后|到手价|大促价)?\s*[￥¥]\s*\d+(?:[.,]\s?\d{1,2})?$/;
 // «×3», «x3», «×l» (буква l вместо 1); бывает в одной строке с ценой: «￥19.9 ×3».
@@ -102,14 +98,6 @@ const END_ITEM = /7天无理由|分享商品|联系商家|申请退款|退货包
 const SHOP_HINT = /店$|旗舰|专营|官方|工厂|商行|百货|超市|小铺|好物|批发|自营/;
 const CARRIER = /((?:[一-龥]{2,8}?(?:快递|速递|快运|物流|速运|邮政|特快))|EMS)\s*[:：]\s*([A-Za-z0-9][A-Za-z0-9 ]{6,40}[A-Za-z0-9])/;
 
-const CARRIER_LAT = [
-  ['中通', 'ZTO'], ['韵达', 'Yunda'], ['极兔', 'J&T'], ['申通', 'STO'], ['圆通', 'YTO'], ['顺丰', 'SF'],
-  ['邮政', 'China Post'], ['EMS', 'EMS'], ['京东', 'JD'], ['德邦', 'Deppon'], ['百世', 'Best'], ['丹鸟', 'Danniao'],
-];
-export function carrierLabel(cn) {
-  const hit = CARRIER_LAT.find(([k]) => cn.includes(k));
-  return hit ? `${cn} (${hit[1]})` : cn;
-}
 
 function findOrderNo(lines) {
   const fixed = lines.map(fixNumbers);
@@ -121,15 +109,6 @@ function findOrderNo(lines) {
 // Номер заказа PDD: 6 цифр даты, дефис, 15 цифр. Другая длина — вероятно, распознано с ошибкой.
 const orderNoDoubt = (no) => (no && !/^\d{6}-\d{15}$/.test(no) ? `номер заказа ${no} необычной длины — сверьте` : '');
 
-// «45.6», «45. 6», «1,299.00», «45,6» → фэни.
-const toFen = (s) => {
-  let t = String(s).replace(/\s+/g, '');
-  if (t.includes(',') && t.includes('.')) t = t.replace(/,/g, '');
-  else t = t.replace(',', '.');
-  const [i, f = ''] = t.split('.');
-  return Number(i) * 100 + Number(f.padEnd(2, '0').slice(0, 2));
-};
-const MONEY = '(\\d+(?:,\\d{3})*(?:[.,]\\s?\\d{1,2})?)';
 
 // Подписи таблицы на экране заказа: если после «已购规格» сразу идёт такая подпись — значения в этой строке нет.
 const TABLE_LABEL = /^(?:该规格|已购|合计|店铺|商品|实付|共优惠|订单|支付|物流公司|快递单号|下单|拼单|发货|关联|优惠|运费)/;
@@ -249,15 +228,6 @@ export function parseOrder(lines) {
     carrier: carrierCn ? carrierLabel(carrierCn) : '', status: track ? Math.max(4, st.status) : 1, doubts };
 }
 
-// Статус по словам на экране логистики (до ленты рекомендаций).
-function logisticsStatus(lines) {
-  const t = lines.join('\n');
-  if (/已签收/.test(t)) return { status: 6, statusWord: '已签收' };
-  const m = /派件中|派送中|运输中|正在发往|已到达|待取件/.exec(t);
-  if (m) return { status: 5, statusWord: m[0] };
-  if (/已揽收|已发货/.test(t)) return { status: 4, statusWord: '已揽收' };
-  return { status: 4, statusWord: '' };
-}
 
 // Экран логистики: перевозчик и трек («韵达快递：4658…»), номер заказа («订单编号：…»).
 // Не трек: телефон курьера («快递员：…», «联系快递：138…», «电话»).
@@ -303,7 +273,7 @@ export function classify(lines) {
 export function classifyAny(lines) {
   const shop = detectShop(lines);
   if (shop !== 'pdd') return PARSERS[shop](lines);
-  return { ...classify(lines), shop };
+  return { ...classify(lines), app: shop };
 }
 
 const norm = (s) => String(s || '').replace(/\s+/g, '').toUpperCase();
