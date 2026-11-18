@@ -164,14 +164,14 @@ export function diff(before, after, fields) {
 
 export const ITEM_FIELDS = ['name', 'nameCn', 'variant', 'paidFen', 'clientId', 'photoId', 'url', 'orderDate', 'pddOrderNo', 'color', 'size', 'kit', 'qty', 'unitFen', 'status', 'track', 'carrier', 'note', 'deleted'];
 export const PURCHASE_FIELDS = ['name', 'startDate', 'endDate', 'rateMicro', 'rounding', 'archived', 'clientIds', 'sessions', 'opis', 'deleted'];
-export const CLIENT_FIELDS = ['name', 'contact', 'note', 'deleted'];
+export const CLIENT_FIELDS = ['name', 'contact', 'note', 'cargoId', 'deleted'];
 
 export const FIELD_LABELS = {
   name: 'Название', nameCn: 'Название из PDD', variant: 'Вариант', paidFen: 'Оплачено ¥', clientId: 'Клиент', photoId: 'Фото', url: 'Ссылка', orderDate: 'Дата заказа', pddOrderNo: 'Номер заказа',
   color: 'Цвет', size: 'Размер', kit: 'Комплектация', qty: 'Количество', unitFen: 'Цена ¥', status: 'Статус', track: 'Трек',
   carrier: 'Перевозчик', note: 'Заметка', deleted: 'Удалён', startDate: 'Дата закупки', endDate: 'Дата завершения',
   rateMicro: 'Курс', rounding: 'Округление', archived: 'В архиве', clientIds: 'Клиенты', sessions: 'Порядок оформления',
-  opis: 'Опись', contact: 'Контакт',
+  opis: 'Опись', contact: 'Контакт', cargoId: 'Карго',
 };
 
 // Все товары закупки одним списком (вид поверх тех же товаров, ничего не копируется).

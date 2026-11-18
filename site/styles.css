@@ -238,3 +238,11 @@ details summary { cursor: pointer; }
 @media (prefers-color-scheme: dark) { .ctag { background: hsl(var(--h) 40% 24%); color: hsl(var(--h) 80% 85%); } }
 .thumb-none { cursor: default; color: var(--muted); }
 .parcels-text { width: 100%; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+.item-num { color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 600; }
+/* Клиенты по карго */
+.cargo-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 14px 0 6px; }
+.cargo-head h3 { margin: 0; }
+.client-row .row-main { text-decoration: none; }
+.client-row select { flex: none; width: auto; max-width: 42%; min-height: 36px; padding: 4px 8px; font-size: 14px; }
+.cargo-edit { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.cargo-edit input { flex: 1; min-width: 0; }

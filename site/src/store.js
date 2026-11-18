@@ -179,9 +179,26 @@ export const opisEdit = (pid, keys, itemIds, patch) => opisChange(pid, (o) => {
 export const opisReset = (pid) => opisChange(pid, () => ({ merges: [], rejected: [], edits: {} }), 'opis-reset');
 
 // ——— Клиенты ———
-export const createClient = ({ name, contact = '', note = '' }) =>
-  commit('clients', null, { name: name.trim(), contact, note, deleted: false }, 'create');
+export const createClient = ({ name, contact = '', note = '', cargoId = '' }) =>
+  commit('clients', null, { name: name.trim(), contact, note, cargoId, deleted: false }, 'create');
+
 export const updateClient = (id, patch) => commit('clients', id, patch);
+
+// Карго: список ведёт пользователь (добавить, переименовать, удалить), у клиента — cargoId.
+// Хранится в настройках и попадает в резервную копию.
+export const cargoList = () => state.settings.cargos || [];
+export const cargoName = (id) => cargoList().find((c) => c.id === id)?.name || '';
+export async function addCargo(name) {
+  const c = { id: uuid(), name: name.trim() };
+  await saveSettings({ cargos: [...cargoList(), c] });
+  return c;
+}
+export const renameCargo = (id, name) => saveSettings({ cargos: cargoList().map((c) => (c.id === id ? { ...c, name: name.trim() } : c)) });
+// Удаление карго: его клиенты становятся «без карго», сами клиенты остаются.
+export async function deleteCargo(id) {
+  for (const c of state.clients.values()) if (c.cargoId === id) await updateClient(c.id, { cargoId: '' });
+  await saveSettings({ cargos: cargoList().filter((c) => c.id !== id) });
+}
 
 export function findClientByName(name) {
   const n = name.trim().toLowerCase();
@@ -330,6 +347,7 @@ export async function makeBackup() {
     items: [...state.items.values()],
     events: state.events,
     docs: state.docs,
+    cargos: cargoList(),
     photos: await Promise.all(photos.map(async (p) => ({ id: p.id, createdAt: p.createdAt, dataUrl: await blobToDataUrl(p.blob) }))),
   };
   return { app: APP_ID, version: BACKUP_VERSION, exportedAt: nowIso(), deviceId: state.deviceId, data };
@@ -350,7 +368,7 @@ export async function restoreBackup(json) {
   const current = await makeBackup();
   const meta = [
     { id: 'device', value: state.deviceId },
-    { ...state.settings, lastBackupAt: json.exportedAt },
+    { ...state.settings, cargos: json.data.cargos || state.settings.cargos || [], lastBackupAt: json.exportedAt },
     { id: 'beforeRestore', at: nowIso(), json: JSON.stringify(current), counts: { purchases: current.data.purchases.length, items: current.data.items.length } },
   ];
   await serial(() => db.replaceAll({ ...json.data, photos, meta }));

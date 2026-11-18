@@ -1,4 +1,5 @@
-// Текст для приложения «Посылки» (сканер треков): закупка → клиент → «N. Товар ТРЕК».
+// Текст для приложения «Посылки» (сканер треков) и для карго: закупка → клиент → «N. Товар ТРЕК».
+// Это формат заметок пользователя («Закуп нояб 9», имя получателя, «4. Штаны 9840471421968»).
 // Формат — тот, что понимает parseNote из «Посылок» (apps/parcel-scanner/code/web/site/src/parse.js):
 //   Закуп <название закупки>
 //   <Имя клиента>
@@ -23,11 +24,14 @@ export function parcelsText(purchaseName, items, { clientName = () => '', client
   const byTime = [...withTrack].sort((a, b) => added(a).localeCompare(added(b)) || (a.seq ?? 0) - (b.seq ?? 0));
   const clients = [...new Set([...clientOrder, ...byTime.map((it) => it.clientId)])].filter((c) => byTime.some((it) => it.clientId === c));
   const out = [`Закуп ${noTrackWords(purchaseName) || 'без названия'}`];
+  // Нумерация сквозная по всему тексту: 1–5 у первого клиента, 6–10 у второго и т. д. (просьба пользователя 18.11).
+  let n = 0;
   for (const c of clients) {
     out.push(noTrackWords(clientName(c)).slice(0, 60).trim() || 'Клиент');
-    byTime.filter((it) => it.clientId === c).forEach((it, i) => {
-      out.push(`${i + 1}. ${noTrackWords(itemLabel(it)) || 'Без названия'} ${normTrack(it.track)}`);
-    });
+    for (const it of byTime.filter((x) => x.clientId === c)) {
+      n += 1;
+      out.push(`${n}. ${noTrackWords(itemLabel(it)) || 'Без названия'} ${normTrack(it.track)}`);
+    }
   }
   return { text: `${out.join('\n')}\n`, copied: withTrack.length, noTrack };
 }

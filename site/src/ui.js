@@ -82,7 +82,7 @@ export function ClientTag({ id }) {
 }
 
 // Строка товара в списке. clientTag — имя клиента крупной цветной меткой (общий список товаров).
-export function ItemRow({ item, showClient, showPurchase, clientTag }) {
+export function ItemRow({ item, showClient, showPurchase, clientTag, num }) {
   const p = S.purchaseById(item.purchaseId);
   const m = itemMoney(item, p);
   const variant = [item.color, item.size, item.kit].filter(Boolean).join(' · ');
@@ -90,7 +90,7 @@ export function ItemRow({ item, showClient, showPurchase, clientTag }) {
     ${item.photoId ? html`<${Thumb} id=${item.photoId} />` : clientTag && html`<span class="thumb thumb-none" aria-hidden="true">📷</span>`}
     <div class="row-main">
       ${clientTag && html`<${ClientTag} id=${item.clientId} />`}
-      <div class="row-title">${itemTitle(item)}${!item.name ? html` <span class="chip s2">впишите название</span>` : ''}</div>
+      <div class="row-title">${num ? html`<span class="item-num">${num}.</span> ` : ''}${itemTitle(item)}${!item.name ? html` <span class="chip s2">впишите название</span>` : ''}</div>
       ${variant && html`<div class="row-sub">${variant}</div>`}
       ${showClient && html`<div class="row-sub">${S.clientName(item.clientId)}${showPurchase ? ` · ${p?.name || ''}` : ''}</div>`}
       <div class="row-sub">
@@ -171,5 +171,40 @@ export function FileReady({ file, onClose, onSaved }) {
       }
     }}>Сохранить или отправить</button>
     <p class="muted small">На iPhone откроется меню «Поделиться»: «Сохранить в Файлы», Telegram, почта.</p>
+  </${Sheet}>`;
+}
+
+// Копирование текста в буфер (для «Посылок», для карго). false — не дался, покажем текст в поле.
+export async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Итог копирования: сколько скопировано, какие товары без трека.
+// Если буфер обмена не дался — текст в поле, выделен, кнопка «Скопировать» ещё раз.
+// r: { text, copied, noTrack, ok } из parcelsText + результат copyText.
+export function CopiedSheet({ r, title, hint, onClose }) {
+  const ref = useRef();
+  useEffect(() => {
+    if (!r.ok) ref.current?.select();
+  }, []);
+  const again = async () => {
+    ref.current?.select();
+    const ok = (await copyText(r.text)) || document.execCommand?.('copy');
+    toast(ok ? 'Скопировано' : 'Выделите текст и нажмите «Скопировать» в меню');
+  };
+  return html`<${Sheet} title=${title} onClose=${onClose}>
+    ${r.ok
+      ? html`<p><b>Скопировано ${r.copied} товаров</b>, без трека: ${r.noTrack.length}. ${hint}</p>`
+      : html`<p class="warn-text">Сам не скопировал. Текст ниже уже выделен — нажмите «Скопировать».</p>
+        <textarea ref=${ref} class="parcels-text" readonly rows="8" value=${r.text}></textarea>
+        <button class="btn primary block" onClick=${again}>Скопировать</button>
+        <p class="muted small">Будет скопировано ${r.copied} товаров, без трека: ${r.noTrack.length}.</p>`}
+    ${r.noTrack.length > 0 && html`<div class="eyebrow">Без трека — не скопированы</div>
+      <div class="list">${r.noTrack.map((it) => html`<${ItemRow} item=${it} clientTag=${true} />`)}</div>`}
   </${Sheet}>`;
 }

@@ -1,5 +1,5 @@
 // Главная, список закупок, форма закупки, экран закупки.
-import { html, useState, useRef, useEffect, Header, Stat, Empty, Search, ItemRow, ClientPicker, Sheet, go, dateRu, timeRu, toast } from '../ui.js';
+import { html, useState, Header, Stat, Empty, Search, ItemRow, ClientPicker, CopiedSheet, copyText, go, dateRu, timeRu, toast } from '../ui.js';
 import { parcelsText } from '../parcels.js';
 
 function GlobalSearch() {
@@ -331,36 +331,6 @@ export function PurchaseClient({ pid, cid }) {
   </main>`;
 }
 
-// Итог копирования для «Посылок»: сколько скопировано, какие товары без трека.
-// Если буфер обмена не дался — текст в поле, выделен, кнопка «Скопировать» ещё раз.
-function ParcelsCopied({ r, onClose }) {
-  const ref = useRef();
-  useEffect(() => {
-    if (!r.ok) ref.current?.select();
-  }, []);
-  const again = async () => {
-    ref.current?.select();
-    let ok = false;
-    try {
-      await navigator.clipboard.writeText(r.text);
-      ok = true;
-    } catch {
-      ok = document.execCommand?.('copy');
-    }
-    toast(ok ? 'Скопировано' : 'Выделите текст и нажмите «Скопировать» в меню');
-  };
-  return html`<${Sheet} title="Для «Посылок»" onClose=${onClose}>
-    ${r.ok
-      ? html`<p><b>Скопировано ${r.copied} товаров</b>, без трека: ${r.noTrack.length}. Откройте «Посылки» и вставьте.</p>`
-      : html`<p class="warn-text">Сам не скопировал. Текст ниже уже выделен — нажмите «Скопировать».</p>
-        <textarea ref=${ref} class="parcels-text" readonly rows="8" value=${r.text}></textarea>
-        <button class="btn primary block" onClick=${again}>Скопировать</button>
-        <p class="muted small">Будет скопировано ${r.copied} товаров, без трека: ${r.noTrack.length}.</p>`}
-    ${r.noTrack.length > 0 && html`<div class="eyebrow">Без трека — не скопированы</div>
-      <div class="list">${r.noTrack.map((it) => html`<${ItemRow} item=${it} clientTag=${true} />`)}</div>`}
-  </${Sheet}>`;
-}
-
 // Все товары всех клиентов закупки одним списком: у каждого товара подписан клиент.
 // Это вид поверх тех же товаров: нажатие открывает карточку товара, правка видна везде.
 export function PurchaseAllItems({ id }) {
@@ -378,15 +348,7 @@ export function PurchaseAllItems({ id }) {
   // Для «Посылок»: все товары закупки (или выбранного клиента) по очереди, с треком.
   const copyForParcels = async () => {
     const r = parcelsText(p.name, cid ? items.filter((x) => x.clientId === cid) : items, { clientName: S.clientName, clientOrder: order });
-    if (!r.copied) return setCopied({ ...r, ok: true });
-    let ok = false;
-    try {
-      await navigator.clipboard.writeText(r.text);
-      ok = true;
-    } catch {
-      ok = false;
-    }
-    return setCopied({ ...r, ok });
+    setCopied({ ...r, ok: r.copied ? await copyText(r.text) : true });
   };
   return html`<${Header} title="Все товары" back=${`/p/${p.id}`} />
   <main>
@@ -405,9 +367,9 @@ export function PurchaseAllItems({ id }) {
     </div>
     <button class="btn block" disabled=${!items.length} onClick=${copyForParcels}>📋 Скопировать для «Посылок»${cid ? `: ${S.clientName(cid)}` : ''}</button>
     ${(q.trim() || cid) && html`<p class="muted small">Найдено: ${t.count} · ${fmtByn(t.kop)}</p>`}
-    <div class="list">${list.map((it) => html`<${ItemRow} item=${it} clientTag=${true} />`)}</div>
+    <div class="list">${list.map((it, i) => html`<${ItemRow} item=${it} clientTag=${true} num=${i + 1} />`)}</div>
     ${!list.length && html`<${Empty}>${items.length ? 'Ничего не найдено' : 'Товаров пока нет'}</${Empty}>`}
-    ${copied && html`<${ParcelsCopied} r=${copied} onClose=${() => setCopied(null)} />`}
+    ${copied && html`<${CopiedSheet} r=${copied} title="Для «Посылок»" hint="Откройте «Посылки» и вставьте." onClose=${() => setCopied(null)} />`}
   </main>`;
 }
 
