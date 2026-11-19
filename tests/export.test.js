@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { formatCents } from '../site/src/money.js';
 import { pdfDefinition, kriLayout, formSize, fillWorksheet, LETTER_TEXT, DEFAULT_FROM } from '../site/src/export.js';
 
 // Только выдуманные данные.
@@ -53,7 +54,9 @@ test('PDF: шапка письма, таблица с рамками, суммы
   const text = JSON.stringify(d);
   assert.ok(text.includes('СОПРОВОДИТЕЛЬНОЕ ПИСЬМО') && text.includes('Опись:'));
   const body = d.content.find((c) => c.table).table.body;
-  assert.equal(body.length, 1 + 28);
+  assert.equal(body.length, 1 + 28 + 1); // шапка, бланк на 28, «Итого»
+  assert.equal(body[29][1].text, 'Итого');
+  assert.equal(body[29][4].text, '77,00');
   assert.equal(body[1][1].text, 'Шарф');
   assert.equal(body[1][4].text, '45,00');
   assert.equal(body[3][1].text, '');
@@ -83,4 +86,52 @@ test('Excel (ExcelJS): объединённые ячейки письма, ра�
   let all = '';
   s.eachRow((r) => r.eachCell((c) => { all += JSON.stringify(c.value); }));
   assert.ok(!CJK.test(all));
+});
+
+// Опись на 115 позиций, как у пользователя 19.11: под последней строкой — «Итого» с числами (выдуманные данные).
+const big = (() => {
+  const rows = Array.from({ length: 115 }, (_, i) => ({ n: i + 1, name: `Товар ${i + 1}`, qty: (i % 3) + 1, unit: 'шт.', totalKop: 101 + i * 37 }));
+  return { ...doc, rows, totalKop: rows.reduce((s, r) => s + r.totalKop, 0), totalQty: rows.reduce((s, r) => s + r.qty, 0) };
+})();
+
+test('итог описи = сумма строк = «Итого» на экране описи', () => {
+  for (const d of [doc, big]) {
+    const k = kriLayout(d);
+    assert.deepEqual(k.total, { qty: d.totalQty, kop: d.totalKop });
+  }
+});
+
+test('Excel: после последней позиции строка «Итого» в рамке, числа записаны в файл (их видно в просмотре iPhone)', async () => {
+  const req = createRequire(import.meta.url);
+  const ExcelJS = req('exceljs');
+  const JSZip = req('jszip');
+  for (const [d, totalAt] of [[big, 125], [doc, 38]]) { // 115 позиций: строки 10–124; бланк на 28: строки 10–37
+    const wb = new ExcelJS.Workbook();
+    const k = kriLayout(d);
+    fillWorksheet(wb.addWorksheet(k.sheet), k);
+    const buf = await wb.xlsx.writeBuffer();
+    const back = new ExcelJS.Workbook();
+    await back.xlsx.load(buf);
+    const s = back.worksheets[0];
+    assert.equal(s.getCell(`B${totalAt}`).value, 'Итого');
+    assert.equal(s.getCell(`B${totalAt}`).border.bottom.style, 'thin');
+    assert.equal(s.getCell(`E${totalAt}`).border.right.style, 'thin');
+    assert.equal(s.getCell(`E${totalAt}`).value.result, d.totalKop / 100);
+    assert.equal(s.getCell(`C${totalAt}`).value.result, d.totalQty);
+    assert.equal(s.getCell(`B${totalAt + 1}`).value, null); // ниже ничего нет
+    // в самом файле у формулы есть готовое значение <v> — Quick Look показывает его
+    const xml = await (await JSZip.loadAsync(buf)).file('xl/worksheets/sheet1.xml').async('string');
+    assert.ok(xml.includes(`<f>SUM(E10:E${totalAt - 1})</f><v>${d.totalKop / 100}</v>`), 'у суммы нет записанного значения');
+    assert.ok(xml.includes(`<f>SUM(C10:C${totalAt - 1})</f><v>${d.totalQty}</v>`), 'у количества нет записанного значения');
+    assert.equal(s.pageSetup.printArea, `A1:E${totalAt}`);
+  }
+});
+
+test('PDF: последняя строка таблицы — «Итого» с количеством и суммой', () => {
+  const body = pdfDefinition(big).content.find((c) => c.table).table.body;
+  assert.equal(body.length, 1 + 115 + 1);
+  const last = body[body.length - 1];
+  assert.equal(last[1].text, 'Итого');
+  assert.equal(last[2].text, String(big.totalQty));
+  assert.equal(last[4].text, formatCents(big.totalKop)); // «2 541,50», как на экране описи
 });

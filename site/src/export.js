@@ -53,7 +53,8 @@ export function kriLayout(doc) {
     text: LETTER_TEXT,
     head: HEAD,
     rows,
-    totalKop: doc.totalKop,
+    // Итог под таблицей — сумма выгруженных строк (то же, что «Итого» на экране описи).
+    total: { qty: doc.rows.reduce((a, r) => a + (Number(r.qty) || 0), 0), kop: doc.rows.reduce((a, r) => a + (r.totalKop || 0), 0) },
   };
 }
 
@@ -71,6 +72,13 @@ export function pdfDefinition(doc) {
       { text: unit },
       { text: kop == null ? '' : formatCents(kop), alignment: 'right' },
     ]),
+    [
+      { text: '' },
+      { text: 'Итого', bold: true },
+      { text: String(k.total.qty), alignment: 'right', bold: true },
+      { text: '' },
+      { text: formatCents(k.total.kop), alignment: 'right', bold: true },
+    ],
   ];
   return {
     info: { title: `Опись — ${doc.title}` },
@@ -97,12 +105,15 @@ export async function pdfBlob(doc) {
   return new Promise((res) => window.pdfMake.createPdf(pdfDefinition(doc)).getBlob(res));
 }
 
+// Суммы прижаты вправо с отступом от рамки: просмотр файлов на iPhone обрезал последние цифры у правого края (19.11).
+const MONEY_ALIGN = { horizontal: 'right', indent: 1 };
+
 // Excel по образцу: шапка письма в объединённых ячейках A:E, таблица с тонкими рамками, Times New Roman.
 export function fillWorksheet(ws, k) {
   const font = { name: 'Times New Roman', size: 10 };
   const thin = { style: 'thin' };
   const box = { top: thin, left: thin, bottom: thin, right: thin };
-  ws.columns = [{ width: 5 }, { width: 46 }, { width: 11 }, { width: 11 }, { width: 12 }];
+  ws.columns = [{ width: 5 }, { width: 44 }, { width: 11 }, { width: 11 }, { width: 14 }];
   const rich = (parts) => ({ richText: parts.map((t, i) => ({ text: t, font: { ...font, bold: i % 2 === 1 } })) });
   const wide = (r, value, extra = {}) => {
     ws.mergeCells(r, 1, r, 5);
@@ -150,10 +161,30 @@ export function fillWorksheet(ws, k) {
       c.font = font;
       c.border = box;
       if (j === 0) c.alignment = { horizontal: 'right' };
-      if (j === 4) c.numFmt = '0.00';
+      if (j === 4) {
+        c.numFmt = '0.00';
+        c.alignment = MONEY_ALIGN;
+      }
     });
   });
-  ws.pageSetup = { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.4, right: 0.4, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 } };
+  // Строка «Итого» сразу под таблицей, в той же рамке. Формула SUM с уже посчитанным значением:
+  // просмотрщик iPhone формулы не пересчитывает и показывает записанное значение.
+  const first = 10;
+  const last = 10 + k.rows.length - 1;
+  const totalRow = ws.getRow(last + 1);
+  const bold = { ...font, bold: true };
+  const cells = ['', 'Итого', { formula: `SUM(C${first}:C${last})`, result: k.total.qty }, '', { formula: `SUM(E${first}:E${last})`, result: k.total.kop / 100 }];
+  cells.forEach((val, j) => {
+    const c = totalRow.getCell(j + 1);
+    c.value = val === '' ? null : val;
+    c.font = bold;
+    c.border = box;
+    if (j === 4) {
+      c.numFmt = '0.00';
+      c.alignment = MONEY_ALIGN;
+    }
+  });
+  ws.pageSetup = { printArea: `A1:E${last + 1}`, paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.4, right: 0.4, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 } };
 }
 
 export async function xlsxBlob(doc) {
