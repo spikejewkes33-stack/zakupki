@@ -1,5 +1,5 @@
 // Главная, список закупок, форма закупки, экран закупки.
-import { html, useState, Header, Stat, Empty, Search, ItemRow, ClientPicker, CopiedSheet, copyText, go, dateRu, timeRu, toast } from '../ui.js';
+import { html, useState, Header, Stat, Empty, Search, ItemRow, ClientPicker, CopiedSheet, QtyPriceFix, copyText, go, dateRu, timeRu, toast } from '../ui.js';
 import { parcelsText } from '../parcels.js';
 
 function GlobalSearch() {
@@ -359,6 +359,7 @@ export function PurchaseClient({ pid, cid }) {
         ${STATUSES.map((s) => html`<option value=${s.id}>${s.label}</option>`)}
       </select>
     </div>
+    <${QtyPriceFix} items=${all} showClient=${false} ro=${p.archived} />
     <div class="list">${list.map((it) => html`<${ItemRow} item=${it} />`)}</div>
     ${!list.length && html`<${Empty}>${all.length ? 'Ничего не найдено' : 'Товаров пока нет'}</${Empty}>`}
   </main>`;

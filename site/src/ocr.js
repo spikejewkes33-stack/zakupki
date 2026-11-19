@@ -61,6 +61,17 @@ export function qtyIn(line) {
   return m ? Number(m[1]) : null;
 }
 
+// Количество не может быть суммой. Live Text читает «¥59» (цена без копеек) как «X59» или «×59», и строка
+// похожа на количество «×N»: так 20.11 появились «59 × 1,00 ¥» вместо «1 × 59 ¥» (сапоги, куртка).
+// Признак: N × 1 ¥ ровно равно сумме заказа (или цене). Тогда это цена: ставим 1 шт. и просим проверить.
+export const qtyIsPrice = (qty, paidFen, priceFen = null) => qty > 1 && (qty * 100 === paidFen || qty * 100 === priceFen);
+export function guardQty(r) {
+  if (!r || r.qty == null || r.qtySure || !qtyIsPrice(r.qty, r.paidFen, r.priceFen)) return r;
+  const n = r.qty;
+  return { ...r, qty: 1, priceFen: r.priceFen ?? n * 100,
+    doubts: [...(r.doubts || []), `проверьте количество: «×${n}» совпало с суммой ${n} ¥ — похоже, это цена, поставил 1 шт.`] };
+}
+
 // Название без цены, «…» и хвоста после обрезки.
 export const cutTitle = (s) => String(s || '').replace(/[￥¥]\s*\d+(?:[.,]\d+)?/g, '').split(/…|\.\.\./)[0].replace(/\s+/g, ' ').trim();
 

@@ -258,3 +258,4 @@ details summary { cursor: pointer; }
 .cargo-card.total { border-color: var(--accent); grid-column: 1 / -1; }
 .cargo-pick { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; }
 .cargo-pick select { width: auto; max-width: 60%; min-height: 36px; padding: 4px 8px; }
+.qty-fix .btn { flex: none; }

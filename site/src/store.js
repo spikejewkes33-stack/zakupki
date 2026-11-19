@@ -250,6 +250,8 @@ export async function saveItem(item) {
     return patch;
   }, action);
 }
+// «59 × 1,00 ¥» → «1 × 59 ¥»: количество 1, оплаченная сумма та же.
+export const fixQtyMixedWithPrice = (id) => commit('items', id, { qty: 1 }, 'update');
 export const deleteItem = (id) => commit('items', id, { deleted: true }, 'delete');
 export const restoreItem = (id) => commit('items', id, { deleted: false }, 'restore');
 export async function moveItem(id, clientId) {

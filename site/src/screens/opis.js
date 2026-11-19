@@ -1,5 +1,5 @@
 // Опись закупки: объединение похожих, правка, исключение, PDF и Excel.
-import { html, useState, Header, Empty, Sheet, FileReady, go, toast, usePhotoUrl } from '../ui.js';
+import { html, useState, Header, Empty, Sheet, FileReady, QtyPriceFix, go, toast, usePhotoUrl } from '../ui.js';
 import * as S from '../store.js';
 import { buildOpis, exportRows, privacyWarnings } from '../opis.js';
 import { fmtByn, formatCents } from '../money.js';
@@ -208,6 +208,7 @@ export function OpisScreen({ id }) {
       ${MODES.map((m) => html`<button class=${mode === m.id ? 'on' : ''} onClick=${() => S.saveSettings({ opisMode: m.id })}>${m.label}</button>`)}
     </div>
     <p class="muted small">В опись не попадают имена клиентов, треки и номера заказов. Товары в базе не меняются.</p>
+    <${QtyPriceFix} items=${S.itemsOf(p.id)} ro=${ro} />
 
     ${!ro && o.suggestions.length > 0 && html`<section class="card warn">
       <div class="eyebrow">Похоже на одно и то же? (${o.suggestions.length})</div>

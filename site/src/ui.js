@@ -2,7 +2,7 @@
 import { html, useState, useEffect, useRef } from '../vendor/preact-htm.js';
 import * as S from './store.js';
 import { fmtByn, fmtCny, itemMoney } from './money.js';
-import { statusShort, itemTitle, clientHue } from './model.js';
+import { statusShort, itemTitle, clientHue, qtyMixedWithPrice } from './model.js';
 import { saveFile } from './export.js';
 
 export { html, useState, useEffect, useRef };
@@ -187,6 +187,20 @@ export async function copyText(text) {
 // Итог копирования: сколько скопировано, какие товары без трека.
 // Если буфер обмена не дался — текст в поле, выделен, кнопка «Скопировать» ещё раз.
 // r: { text, copied, noTrack, ok } из parcelsText + результат copyText.
+// Подсказка о карточках «N × 1,00 ¥» (количество перепутано с ценой) с кнопкой «Исправить на 1 шт.» у каждой.
+export function QtyPriceFix({ items, showClient = true, ro = false }) {
+  const bad = items.filter(qtyMixedWithPrice);
+  if (!bad.length) return null;
+  return html`<section class="card warn">
+    <div><b>Похоже, количество перепутано с ценой</b> (${bad.length}): на снимке цена «¥${bad[0].qty}» прочиталась как «×${bad[0].qty}». Сумма верная, а штук на самом деле, скорее всего, одна.</div>
+    ${bad.map((it) => html`<div class="row qty-fix" key=${it.id}>
+      <div class="row-main"><div class="row-title">${itemTitle(it)}</div>
+        <div class="row-sub">${showClient ? `${S.clientName(it.clientId)} · ` : ''}сейчас ${it.qty} × 1,00 ¥ → станет 1 × ${fmtCny(it.paidFen)}</div></div>
+      ${!ro && html`<button class="btn small" onClick=${async () => { await S.fixQtyMixedWithPrice(it.id); toast('Исправлено: 1 шт.'); }}>Исправить на 1 шт.</button>`}
+    </div>`)}
+  </section>`;
+}
+
 export function CopiedSheet({ r, title, hint, onClose }) {
   const ref = useRef();
   useEffect(() => {

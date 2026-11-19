@@ -7,7 +7,7 @@
 import { clientForTime } from './order.js';
 import { ruName, nameFromTranslation } from './names.js';
 import { detectShop, PARSERS } from './shops.js';
-import { fixNumbers, carrierLabel, toFen, MONEY, logisticsStatus, sameGoods } from './ocr.js';
+import { fixNumbers, carrierLabel, toFen, MONEY, logisticsStatus, sameGoods, qtyIsPrice, guardQty } from './ocr.js';
 
 export { carrierLabel };
 
@@ -151,21 +151,28 @@ export function parseOrder(lines) {
   const limit = paidIdx >= 0 ? paidIdx : lines.length;
 
   // Количество «×N» до строки 实付; цена «¥28.9» рядом с ним — цена до скидки, её не берём.
+  // «X59» / «×59», где 59 ¥ — сумма заказа, это цена «¥59», прочитанная Live Text как «X»: не количество.
   const qtyIdx = [];
-  for (let i = 0; i < limit; i++) if (isQtyLine(lines[i])) qtyIdx.push(i);
+  let misreadPrice = null;
+  for (let i = 0; i < limit; i++) {
+    if (!isQtyLine(lines[i])) continue;
+    if (qtyIsPrice(qtyOf(lines[i]), paidFen)) misreadPrice = i;
+    else qtyIdx.push(i);
+  }
   const qi = qtyIdx.length ? qtyIdx[qtyIdx.length - 1] : -1;
   let qty = 1;
   if (qi >= 0) qty = qtyOf(lines[qi]);
   else doubts.push('не нашёл количество «×N», поставил 1');
   if (qtyIdx.length > 1) doubts.push('похоже, в заказе несколько товаров — проверьте название, количество и сумму');
 
-  let pi = -1;
+  let pi = misreadPrice ?? -1;
   const anchor = qi >= 0 ? qi : limit;
   for (let i = anchor; i >= Math.max(0, anchor - 4); i--) if (PRICE_LINE.test(lines[i]) || (i === qi && /[￥¥]/.test(lines[i]))) { pi = i; break; }
   let priceFen = null;
   if (pi >= 0) {
     const m = new RegExp(`[￥¥]\\s*${MONEY}`).exec(lines[pi]);
     if (m) priceFen = toFen(m[1]);
+    else if (pi === misreadPrice) priceFen = qtyOf(lines[pi]) * 100;
   }
   // Сверка: оплачено не больше цены × количество и не меньше её десятой части (скидки бывают, но не в 10 раз).
   if (paidFen != null && priceFen) {
@@ -210,9 +217,13 @@ export function parseOrder(lines) {
   }
   const spec = labelValue(lines, /^已购规格/);
   if (spec) variant = spec;
+  // «已购数量» — само поле количества заказа: главнее «×N» (тот бывает ценой, прочитанной как «X»).
+  let qtySure = false;
   const bought = labelValue(lines, /^已购数量/);
-  if (qi < 0 && /^\d{1,4}$/.test(bought)) {
+  if (/^\d{1,4}$/.test(bought) && Number(bought) > 0) {
+    if (qi >= 0 && Number(bought) !== qty) doubts.push(`на снимке «×${qty}» и «已购数量 ${bought}» — взял ${bought}, проверьте количество`);
     qty = Number(bought);
+    qtySure = true;
     const k = doubts.indexOf('не нашёл количество «×N», поставил 1');
     if (k >= 0) doubts.splice(k, 1);
   }
@@ -224,7 +235,7 @@ export function parseOrder(lines) {
   const nd = orderNoDoubt(orderNo);
   if (nd) doubts.push(nd);
   const st = track ? logisticsStatus(lines) : { status: 1, statusWord: '' };
-  return { kind: 'order', orderNo, nameCn, shop, variant, qty, paidFen, priceFen, titleIdx, track: track.length >= 8 ? track : '',
+  return { kind: 'order', orderNo, nameCn, shop, variant, qty, qtySure, paidFen, priceFen, titleIdx, track: track.length >= 8 ? track : '',
     carrier: carrierCn ? carrierLabel(carrierCn) : '', status: track ? Math.max(4, st.status) : 1, doubts };
 }
 
@@ -274,8 +285,10 @@ export function classifyAny(lines) {
   // Чат с продавцом («请确认收货地址», «你可能想咨询该订单») — не заказ: цены там другие, пропускаем.
   if (lines.some((l) => /请确认收货地址|你可能想咨询/.test(l))) return { kind: 'unknown', app: '', doubts: ['это снимок чата с продавцом, не заказа — пропускаю'] };
   const shop = detectShop(lines);
-  if (shop !== 'pdd') return PARSERS[shop](lines);
-  return { ...classify(lines), app: shop };
+  const r = shop !== 'pdd' ? PARSERS[shop](lines) : { ...classify(lines), app: shop };
+  // Страховка для всех магазинов: количество, равное сумме в юанях, — это цена.
+  if (r.kind === 'orderList') return { ...r, items: r.items.map(guardQty) };
+  return r.kind === 'order' ? guardQty(r) : r;
 }
 
 const norm = (s) => String(s || '').replace(/\s+/g, '').toUpperCase();
