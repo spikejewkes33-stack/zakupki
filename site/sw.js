@@ -15,6 +15,8 @@ const FILES = [
   'vendor/pdfmake.min.js',
   'vendor/vfs_fonts.js',
   'vendor/exceljs.min.js',
+  'vendor/zxing-reader.js',
+  'vendor/zxing_reader.wasm',
   'src/app.js',
   'src/ui.js',
   'src/db.js',
@@ -30,6 +32,12 @@ const FILES = [
   'src/taobao.js',
   'src/poizon.js',
   'src/parcels.js',
+  'src/arrivals.js',
+  'src/scan/track.js',
+  'src/scan/match.js',
+  'src/scan/scanfilter.js',
+  'src/scan/scanner.js',
+  'src/scan/feedback.js',
   'src/names.js',
   'src/photocrop.js',
   'src/screens/import.js',
@@ -39,6 +47,7 @@ const FILES = [
   'src/screens/clients.js',
   'src/screens/opis.js',
   'src/screens/other.js',
+  'src/screens/scan.js',
 ];
 
 self.addEventListener('install', (event) => {

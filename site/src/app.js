@@ -9,6 +9,7 @@ import { OpisScreen } from './screens/opis.js';
 import { HistoryScreen, SettingsScreen } from './screens/other.js';
 import { ImportScreen } from './screens/import.js';
 import { HelpScreen } from './screens/help.js';
+import { ScanScreen, ArrivalsScreen } from './screens/scan.js';
 
 const TABS = [
   { path: '/', label: 'Главная', icon: '⌂', match: (r) => r === '/' || r === '/settings' || r === '/import' || r === '/help' },
@@ -31,6 +32,8 @@ function screen({ path, query }) {
   if (path === '/purchase/new') return html`<${PurchaseForm} />`;
   if ((m = path.match(/^\/p\/([^/]+)\/edit$/))) return html`<${PurchaseForm} id=${m[1]} />`;
   if ((m = path.match(/^\/p\/([^/]+)\/all$/))) return html`<${PurchaseAllItems} id=${m[1]} />`;
+  if ((m = path.match(/^\/p\/([^/]+)\/scan$/))) return html`<${ScanScreen} id=${m[1]} />`;
+  if ((m = path.match(/^\/p\/([^/]+)\/arrived$/))) return html`<${ArrivalsScreen} id=${m[1]} query=${query} />`;
   if ((m = path.match(/^\/p\/([^/]+)\/c\/([^/]+)$/))) return html`<${PurchaseClient} pid=${m[1]} cid=${m[2]} />`;
   if ((m = path.match(/^\/p\/([^/]+)$/))) return html`<${PurchaseScreen} id=${m[1]} />`;
   if (path === '/item/new') return html`<${ItemForm} query=${query} />`;

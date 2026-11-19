@@ -170,7 +170,7 @@ export function ClientCard({ id }) {
         <div class="list">${byPurchase.map((p) => {
           const tt = totals(items.filter((x) => x.purchaseId === p.id), S.purchaseById);
           return html`<a class="row" href=${`#/p/${p.id}/c/${id}`}>
-            <div class="row-main"><div class="row-title">${p.name}${p.archived ? ' · архив' : ''}</div><div class="row-sub">${dateRu(p.startDate)} · ${tt.count} товаров</div></div>
+            <div class="row-main"><div class="row-title">${p.name}${p.archived ? ' · закрыта' : ''}</div><div class="row-sub">${dateRu(p.startDate)} · ${tt.count} товаров</div></div>
             <div class="row-side"><div class="row-money">${fmtByn(tt.kop)}</div></div>
           </a>`;
         })}</div>

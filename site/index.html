@@ -17,6 +17,9 @@
 <body>
   <div id="app"></div>
   <noscript>Нужен JavaScript.</noscript>
+  <!-- Короткая вибрация в Safari: щелчок по скрытому переключателю (сканер, src/scan/feedback.js). -->
+  <label id="haptic" aria-hidden="true"><input type="checkbox" switch tabindex="-1"></label>
+  <script src="vendor/zxing-reader.js" defer></script>
   <script type="module" src="src/app.js"></script>
 </body>
 </html>

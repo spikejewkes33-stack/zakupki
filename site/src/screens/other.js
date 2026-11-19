@@ -1,4 +1,4 @@
-// История (архив закупок и сохранённые описи) и «Данные»: резервная копия, хранилище, журнал изменений.
+// История (закрытые закупки и сохранённые описи) и «Данные»: резервная копия, хранилище, журнал изменений.
 import { html, useState, useEffect, Header, Empty, Search, FileReady, timeRu, toast } from '../ui.js';
 import * as S from '../store.js';
 import { PurchaseRow } from './purchases.js';
@@ -20,9 +20,9 @@ export function HistoryScreen() {
   return html`<${Header} title="История" />
   <main>
     <${Search} value=${q} onInput=${setQ} placeholder="Найти закупку" />
-    <h3>Завершённые закупки</h3>
+    <h3>Закрытые закупки</h3>
     <div class="list">${archived.map((p) => html`<${PurchaseRow} p=${p} />`)}</div>
-    ${!archived.length && html`<${Empty}>Пока нет. Закупка попадает сюда кнопкой «Завершить закупку».</${Empty}>`}
+    ${!archived.length && html`<${Empty}>Пока нет. Закупка попадает сюда кнопкой «Закрыть закупку».</${Empty}>`}
     <h3>Сформированные описи</h3>
     <div class="list">${docs.map((d) => html`<div class="row">
       <div class="row-main"><div class="row-title">${d.title}</div><div class="row-sub">${timeRu(d.createdAt)} · ${d.rows.length} строк · ${MODE[d.mode] || ''} · ${fmtByn(d.totalKop)}</div></div>

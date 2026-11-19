@@ -14,5 +14,8 @@
     "pdfmake": "0.2.23",
     "preact": "10.27.2",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.8"
   }
 }

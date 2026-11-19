@@ -126,7 +126,7 @@ export function ItemForm({ id, query }) {
 
   return html`<${Header} title=${existing ? 'Товар' : 'Новый товар'} back=${true} />
   <main>
-    ${ro && html`<div class="card info">Закупка в архиве: только просмотр.</div>`}
+    ${ro && html`<div class="card info">Закупка закрыта: только просмотр.</div>`}
     <form class="form card" onSubmit=${(e) => { e.preventDefault(); save(false); }}>
       <fieldset disabled=${ro}>
       <div class="field">

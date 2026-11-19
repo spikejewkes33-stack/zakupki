@@ -1,6 +1,7 @@
 // Главная, список закупок, форма закупки, экран закупки.
 import { html, useState, Header, Stat, Empty, Search, ItemRow, ClientPicker, CopiedSheet, copyText, go, dateRu, timeRu, toast } from '../ui.js';
 import { parcelsText } from '../parcels.js';
+import { ScanEntry } from './scan.js';
 
 function GlobalSearch() {
   const [q, setQ] = useState('');
@@ -121,6 +122,7 @@ export function Home() {
             <a class="btn" href=${`#/p/${p.id}/all`}>Все товары</a>
             <a class="btn" href=${`#/opis/${p.id}`}>Опись</a>
           </div>
+          <${ScanEntry} p=${p} primary=${false} />
         </section>
         <${CargoCards} p=${p} />
         <section class="card take">
@@ -244,7 +246,7 @@ export function PurchaseScreen({ id }) {
   return html`<${Header} title=${p.name} back=${ro ? '/history' : '/purchases'}
     right=${!ro && html`<a class="icon-btn" href=${`#/p/${p.id}/edit`} aria-label="Изменить закупку">✎</a>`} />
   <main>
-    ${ro && html`<div class="card info">Закупка в архиве: только просмотр. Чтобы изменить, верните её из архива внизу.</div>`}
+    ${ro && html`<div class="card info">Закупка закрыта: только просмотр. Чтобы изменить, верните её в открытые кнопкой внизу.</div>`}
     <section class="card">
       <div class="muted small">${dateRu(p.startDate)}${p.endDate ? ` — ${dateRu(p.endDate)}` : ''} · 1 ¥ = ${formatRate(p.rateMicro)} BYN · ${roundingLabel(p.rounding)}</div>
       <${PurchaseStats} p=${p} />
@@ -254,6 +256,7 @@ export function PurchaseScreen({ id }) {
         ${!ro && !active && html`<button class="btn" onClick=${() => S.saveSettings({ activePurchaseId: p.id })}>Сделать активной</button>`}
       </div>
       <button class="btn block" disabled=${!items.length} onClick=${copyList}>📋 Скопировать список</button>
+      <${ScanEntry} p=${p} />
     </section>
     <${OrderingPanel} p=${p} />
 
@@ -296,10 +299,10 @@ export function PurchaseScreen({ id }) {
     </section>`}
 
     <button class="btn block ${ro ? 'primary' : ''}" onClick=${async () => {
-      if (!ro && !confirm('Перенести закупку в архив? Она останется в «Истории», её можно будет вернуть.')) return;
+      if (!ro && !confirm('Закрыть закупку? Она уйдёт в «История → Закрытые закупки». Ничего не удалится, её можно вернуть.')) return;
       await S.archivePurchase(p.id, !ro);
-      toast(ro ? 'Закупка снова открыта' : 'Закупка в архиве');
-    }}>${ro ? 'Вернуть из архива' : 'Завершить закупку (в архив)'}</button>
+      toast(ro ? 'Закупка снова открыта' : 'Закупка закрыта');
+    }}>${ro ? 'Вернуть в открытые' : 'Закрыть закупку'}</button>
     ${copied && html`<${CopiedSheet} r=${copied} title="Список закупки" hint=${`Только закупка «${p.name}». Вставьте в мессенджер или в «Посылки».`} onClose=${() => setCopied(null)} />`}
     ${pick && html`<${ClientPicker} title="Добавить клиента" excludeIds=${p.clientIds} onClose=${() => setPick(false)}
       onPick=${async (c) => { setPick(false); await S.addClientToPurchase(p.id, c.id); }} />`}

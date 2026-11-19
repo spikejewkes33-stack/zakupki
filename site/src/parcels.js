@@ -7,9 +7,10 @@
 // Трек — последнее слово строки. В названии и имени клиента не должно быть слов, похожих на трек,
 // иначе «Посылки» примут их за трек: такие слова убираются.
 import { itemLabel } from './opis.js';
+import { looksLikeTrack } from './scan/track.js';
 
-// Как в «Посылках»: 8–30 латинских букв и цифр, из них не меньше 6 цифр.
-export const looksLikeTrack = (v) => /^[A-Z0-9]{8,30}$/.test(v) && (v.match(/\d/g) || []).length >= 6;
+// Как в «Посылках» и в сканере: 8–30 латинских букв и цифр, из них не меньше 6 цифр.
+export { looksLikeTrack };
 const core = (word) => word.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '').toUpperCase();
 const noTrackWords = (s) => String(s || '').replace(/\s+/g, ' ').trim().split(' ').filter((w) => w && !looksLikeTrack(core(w))).join(' ');
 const normTrack = (t) => String(t || '').replace(/\s+/g, '').toUpperCase();

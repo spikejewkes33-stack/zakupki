@@ -258,3 +258,59 @@ details summary { cursor: pointer; }
 .cargo-card.total { border-color: var(--accent); grid-column: 1 / -1; }
 .cargo-pick { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; }
 .cargo-pick select { width: auto; max-width: 60%; min-height: 36px; padding: 4px 8px; }
+
+/* Склад: вход на экране закупки и на главной */
+.scan-entry { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.scan-progress { display: flex; flex-direction: column; gap: 6px; color: inherit; font-size: 15px; }
+.scan-progress .bar { display: block; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.scan-progress .bar i { display: block; height: 100%; background: var(--ok); }
+.card .scan-progress + .btn { margin-top: 12px; }
+.arr-row { display: flex; align-items: center; border-bottom: 1px solid var(--line); }
+.arr-row .row { flex: 1; min-width: 0; border-bottom: 0; }
+.arr-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-right: 10px; flex: none; }
+.other-text { color: #7a3db8; }
+.arr-tabs button { font-size: 13px; padding: 8px 4px; }
+@media (prefers-color-scheme: dark) { .other-text { color: #c4a1ef; } }
+
+/* Сканер (из «Посылок»): цвета результата постоянные, не зависят от темы */
+.scanner { position: fixed; inset: 0; z-index: 25; background: #000; color: #fff; overflow: hidden; }
+.scanner video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.aim {
+  position: absolute; left: 8%; right: 8%; top: 22%; height: 26%;
+  border: 3px solid rgb(255 255 255 / 0.8); border-radius: 18px;
+  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.25);
+}
+.scan-top, .scan-bottom { position: absolute; left: 0; right: 0; display: flex; gap: 8px; align-items: center; padding: 0 12px; }
+.scan-top { top: calc(env(safe-area-inset-top) + 8px); }
+.scan-top .scan-count { flex: 1; justify-content: center; }
+.scan-bottom { bottom: calc(env(safe-area-inset-bottom) + 10px); justify-content: space-between; font-size: 15px; }
+.scan-where { position: absolute; left: 12px; right: 12px; top: calc(env(safe-area-inset-top) + 62px); margin: 0; text-align: center; font-size: 15px; text-shadow: 0 1px 3px #000; }
+.pill {
+  background: rgb(0 0 0 / 0.55); color: #fff; border: 0; border-radius: 999px;
+  padding: 10px 14px; min-height: 44px; font: inherit; font-size: 16px; display: inline-flex; align-items: center;
+}
+.result {
+  position: absolute; left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 70px);
+  min-height: 150px; max-height: 50vh; overflow: auto; padding: 16px; border-radius: 20px;
+  background: rgb(0 0 0 / 0.6); color: #fff;
+}
+.result p { margin: 4px 0; }
+.result .mono { font-size: 17px; font-family: ui-monospace, 'SF Mono', Menlo, monospace; word-break: break-all; }
+.result .mono.big { font-size: 22px; }
+.result-title { font-size: 28px; font-weight: 800; }
+.result-name { font-size: 22px; font-weight: 600; }
+.result-who { font-size: 18px; }
+.result-items { margin: 2px 0 4px; padding-left: 22px; font-size: 20px; font-weight: 600; }
+.result.found, .flash.found { background: #188a42; }
+.result.unknown, .flash.unknown { background: #c9302c; }
+.result.repeat, .flash.repeat { background: #f2b705; color: #1d1a00; }
+.result.other, .flash.other { background: #7a3db8; }
+.flash { position: absolute; inset: 0; pointer-events: none; opacity: 0; }
+.flash.on { animation: flash 0.7s ease-out; }
+@keyframes flash { from { opacity: 0.75; } to { opacity: 0; } }
+.scan-cams {
+  position: absolute; left: 12px; right: 12px; bottom: calc(env(safe-area-inset-bottom) + 12px);
+  display: flex; flex-direction: column; gap: 8px; padding: 16px; border-radius: 20px; background: var(--card); color: var(--text);
+}
+.scan-cams p { margin: 0; }
+#haptic { position: fixed; left: -100px; top: 0; opacity: 0; pointer-events: none; }

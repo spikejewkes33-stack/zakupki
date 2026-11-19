@@ -6,6 +6,8 @@ import { startSession as startS, finishSession as finishS } from './order.js';
 import { pairId } from './opis.js';
 import { DEFAULT_ROUNDING } from './money.js';
 import { emptyItem } from './model.js';
+import { ARRIVED, isArrived, trackIndex, lookupTrack as findTrack, scanOutcome, statusBeforeArrival } from './arrivals.js';
+import { normalizeTrack } from './scan/track.js';
 
 export const APP_ID = 'pdd-zakupki';
 export const BACKUP_VERSION = 1;
@@ -22,6 +24,8 @@ export const state = {
   settings: { id: 'settings', activePurchaseId: null, lastBackupAt: null },
   // «Забрать» из «Команды»: разобранные блоки, треки без карточки, запомненные переводы названий.
   importInfo: { id: 'import', blockIds: [], pending: [], translations: {} },
+  // Журнал сканирований на складе: id закупки → записи. Читается из базы по требованию (loadScans).
+  scans: new Map(),
   deviceId: null,
 };
 
@@ -57,6 +61,7 @@ export async function load() {
   state.items = new Map(items.map((x) => [x.id, x]));
   state.events = events.sort((a, b) => a.at.localeCompare(b.at));
   state.docs = docs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  state.scans = new Map();
   const m = new Map(meta.map((x) => [x.id, x]));
   state.settings = m.get('settings') || state.settings;
   state.importInfo = { id: 'import', blockIds: [], pending: [], translations: {}, ...(m.get('import') || {}) };
@@ -97,30 +102,42 @@ function serial(fn) {
   return run;
 }
 
+// Изменение одной сущности без записи: новая версия и событие для журнала. null — изменений нет.
+// Вызывать только внутри очереди (serial), со свежими данными.
+function prepare(store, id, makePatch, action) {
+  const before = id ? state[store].get(id) : null;
+  if (id && !before) throw new Error('Запись не найдена');
+  const patch = typeof makePatch === 'function' ? makePatch(before) : makePatch;
+  if (!patch) return null;
+  const at = nowIso();
+  const after = {
+    ...(before || { id: uuid(), createdAt: at, rev: 0 }),
+    ...patch,
+    updatedAt: at,
+    rev: (before?.rev || 0) + 1,
+    deviceId: state.deviceId,
+  };
+  const changes = diff(before, after, FIELDS[store]);
+  if (before && Object.keys(changes).length === 0) return null;
+  const event = { id: uuid(), at, deviceId: state.deviceId, entity: ENTITY[store], entityId: after.id, action, changes };
+  return { store, after, event };
+}
+const toWrite = (c) => [[c.store, c.after], ['events', c.event]];
+function apply(c) {
+  state[c.store].set(c.after.id, c.after);
+  state.events.push(c.event);
+}
+
 // Записать изменение одной сущности. makePatch(before) вызывается уже в очереди, со свежими данными;
 // вернул null — изменений нет.
 function commit(store, id, makePatch, action) {
   return serial(async () => {
-    const before = id ? state[store].get(id) : null;
-    if (id && !before) throw new Error('Запись не найдена');
-    const patch = typeof makePatch === 'function' ? makePatch(before) : makePatch;
-    if (!patch) return before;
-    const at = nowIso();
-    const after = {
-      ...(before || { id: uuid(), createdAt: at, rev: 0 }),
-      ...patch,
-      updatedAt: at,
-      rev: (before?.rev || 0) + 1,
-      deviceId: state.deviceId,
-    };
-    const changes = diff(before, after, FIELDS[store]);
-    if (before && Object.keys(changes).length === 0) return before;
-    const event = { id: uuid(), at, deviceId: state.deviceId, entity: ENTITY[store], entityId: after.id, action, changes };
-    await db.putMany([[store, after], ['events', event]]);
-    state[store].set(after.id, after);
-    state.events.push(event);
+    const c = prepare(store, id, makePatch, action);
+    if (!c) return id ? state[store].get(id) : null;
+    await db.putMany(toWrite(c));
+    apply(c);
     notify();
-    return after;
+    return c.after;
   });
 }
 
@@ -342,6 +359,73 @@ export async function saveDoc(doc) {
   return d;
 }
 
+// ——— Склад: сканер ———
+// Индекс треков открытых закупок пересобирается только после изменений (по номеру версии данных).
+let indexCache = { version: -1, index: new Map() };
+function openIndex() {
+  if (indexCache.version !== version) indexCache = { version, index: trackIndex([...state.items.values()], purchaseById) };
+  return indexCache.index;
+}
+// Трек из открытых закупок для текста штрихкода или null (для фильтра кадров сканера).
+export const lookupTrack = (code) => findTrack(code, openIndex());
+// Насколько чужой код похож на треки списка: те же буквы в начале (+2), та же длина (+1).
+export function shapeScore(code) {
+  const norm = normalizeTrack(code);
+  const prefix = (t) => t.match(/^[A-Z]*/)[0];
+  const tracks = [...openIndex().keys()];
+  return (tracks.some((t) => prefix(t) === prefix(norm)) ? 2 : 0) + (tracks.some((t) => t.length === norm.length) ? 1 : 0);
+}
+
+// Скан на складе в закупке pid: track — трек из открытых закупок (lookupTrack) или null, если кода нет нигде.
+// Товары этой закупки с треком получают «На складе», в журнал 'scans' пишется запись — всё одной транзакцией.
+// Сканы идут в общей очереди: быстрая серия не теряет и не задваивает отметки.
+export function scanCode(pid, code, track) {
+  return serial(async () => {
+    const p = state.purchases.get(pid);
+    if (!p || p.archived || p.deleted) throw new Error('Закупка закрыта: сканировать нельзя');
+    const out = scanOutcome(track, trackIndex([...state.items.values()], purchaseById), pid);
+    const changes = out.fresh.map((it) => prepare('items', it.id, { status: ARRIVED }, 'scan')).filter(Boolean);
+    const rec = {
+      id: uuid(), at: nowIso(), deviceId: state.deviceId, purchaseId: pid, code: normalizeTrack(code), track: track || null,
+      result: out.result, itemIds: out.items.map((it) => it.id), otherPids: out.otherPids,
+    };
+    await db.putMany([...changes.flatMap(toWrite), ['scans', rec]]);
+    changes.forEach(apply);
+    state.scans.get(pid)?.push(rec);
+    notify();
+    return { ...out, items: out.items.map((it) => state.items.get(it.id)), rec };
+  });
+}
+
+// Ручная отметка: «приехал» ставит «На складе», «не приехал» возвращает статус, который был до отметки.
+export const setArrived = (id, on) => commit('items', id, (it) => {
+  if (on) return isArrived(it) ? null : { status: ARRIVED };
+  return isArrived(it) ? { status: statusBeforeArrival(it, state.events) } : null;
+}, on ? 'arrived' : 'unarrived');
+
+// Журнал сканирований закупки — из базы, один раз за запуск.
+export function loadScans(pid) {
+  return serial(async () => {
+    if (state.scans.has(pid)) return;
+    const list = await db.scansOf(pid);
+    state.scans.set(pid, list.sort((a, b) => a.at.localeCompare(b.at)));
+    notify();
+  });
+}
+export const scansOf = (pid) => state.scans.get(pid) || null;
+
+// «Убрать» код из «Нет в списке»: записи журнала остаются, только помечаются.
+export function dismissMissing(pid, code) {
+  return serial(async () => {
+    const list = state.scans.get(pid) || [];
+    const marked = list.filter((r) => r.code === code && !r.dismissed).map((r) => ({ ...r, dismissed: true }));
+    if (!marked.length) return;
+    await db.putMany(marked.map((r) => ['scans', r]));
+    state.scans.set(pid, list.map((r) => marked.find((m) => m.id === r.id) || r));
+    notify();
+  });
+}
+
 // ——— Удобные выборки ———
 export const purchaseById = (id) => state.purchases.get(id);
 export const clientName = (id) => state.clients.get(id)?.name || '(клиент удалён)';
@@ -377,6 +461,7 @@ export async function makeBackup() {
     items: [...state.items.values()],
     events: state.events,
     docs: state.docs,
+    scans: await db.getAll('scans'),
     cargos: cargoList(),
     photos: await Promise.all(photos.map(async (p) => ({ id: p.id, createdAt: p.createdAt, dataUrl: await blobToDataUrl(p.blob) }))),
   };

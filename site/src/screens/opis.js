@@ -202,7 +202,7 @@ export function OpisScreen({ id }) {
   return html`<${Header} title="Опись" />
   <main>
     <select class="block-select" value=${p.id} onChange=${(e) => go(`/opis/${e.target.value}`)} aria-label="Закупка">
-      ${purchases.map((x) => html`<option value=${x.id}>${x.name}${x.archived ? ' (архив)' : ''}</option>`)}
+      ${purchases.map((x) => html`<option value=${x.id}>${x.name}${x.archived ? ' (закрыта)' : ''}</option>`)}
     </select>
     <div class="seg" role="group" aria-label="Что показывать">
       ${MODES.map((m) => html`<button class=${mode === m.id ? 'on' : ''} onClick=${() => S.saveSettings({ opisMode: m.id })}>${m.label}</button>`)}

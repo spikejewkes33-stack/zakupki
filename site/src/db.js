@@ -2,14 +2,25 @@
 // id (UUID), createdAt, updatedAt, rev (счётчик правок), deviceId, deleted (пометка вместо удаления).
 import { openDB } from '../vendor/idb.js';
 
-export const STORES = ['purchases', 'clients', 'items', 'events', 'docs', 'photos', 'meta'];
+export const STORES = ['purchases', 'clients', 'items', 'events', 'docs', 'photos', 'meta', 'scans'];
+// Версия базы. 1 — до сканера; 2 — добавлен журнал сканирований на складе 'scans' (с поиском по закупке).
+// Переход только добавляет хранилище: старые записи не трогаются.
+export const DB_VERSION = 2;
 
 let dbp = null;
 export function db() {
   if (!dbp) {
-    dbp = openDB('pdd-zakupki', 1, {
+    dbp = openDB('pdd-zakupki', DB_VERSION, {
       upgrade(d) {
-        for (const s of STORES) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s, { keyPath: 'id' });
+        for (const s of STORES) {
+          if (d.objectStoreNames.contains(s)) continue;
+          const os = d.createObjectStore(s, { keyPath: 'id' });
+          if (s === 'scans') os.createIndex('purchaseId', 'purchaseId');
+        }
+      },
+      // Другая вкладка с новой версией просит обновить базу: закрываемся, чтобы не мешать ей.
+      blocking(_cur, _next, e) {
+        e.target.close();
       },
     });
   }
@@ -18,6 +29,10 @@ export function db() {
 
 export async function getAll(store) {
   return (await db()).getAll(store);
+}
+// Сканирования одной закупки (по индексу, без чтения всего журнала).
+export async function scansOf(purchaseId) {
+  return (await db()).getAllFromIndex('scans', 'purchaseId', purchaseId);
 }
 export async function put(store, value) {
   return (await db()).put(store, value);

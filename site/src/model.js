@@ -186,7 +186,7 @@ export const FIELD_LABELS = {
   name: 'Название', nameCn: 'Название из PDD', variant: 'Вариант', paidFen: 'Оплачено ¥', clientId: 'Клиент', photoId: 'Фото', url: 'Ссылка', orderDate: 'Дата заказа', pddOrderNo: 'Номер заказа',
   color: 'Цвет', size: 'Размер', kit: 'Комплектация', qty: 'Количество', unitFen: 'Цена ¥', status: 'Статус', track: 'Трек',
   carrier: 'Перевозчик', note: 'Заметка', deleted: 'Удалён', startDate: 'Дата закупки', endDate: 'Дата завершения',
-  rateMicro: 'Курс', rounding: 'Округление', archived: 'В архиве', clientIds: 'Клиенты', sessions: 'Порядок оформления',
+  rateMicro: 'Курс', rounding: 'Округление', archived: 'Закрыта', clientIds: 'Клиенты', sessions: 'Порядок оформления',
   opis: 'Опись', contact: 'Контакт', cargoId: 'Карго', cargoByClient: 'Карго клиентов',
 };
 
