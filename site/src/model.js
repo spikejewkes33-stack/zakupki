@@ -190,10 +190,16 @@ export const FIELD_LABELS = {
   opis: 'Опись', contact: 'Контакт', cargoId: 'Карго', cargoByClient: 'Карго клиентов',
 };
 
-// Уже сохранённые карточки, где количество перепутано с ценой (до исправления 20.11): «59 × 1,00 ¥» вместо
-// «1 × 59 ¥». Признак — цена за штуку ровно 1 ¥ при количестве больше 1. Данные сами не меняются:
-// пользователь видит подсказку и нажимает «Исправить на 1 шт.» (сумма остаётся, цена за штуку = сумме).
-export const qtyMixedWithPrice = (it) => !it.deleted && it.qty > 1 && it.unitFen == null && it.paidFen === it.qty * 100;
+// Уже сохранённые карточки, где количество перепутано с ценой (импорт до 20.11): «59 × 1,00 ¥» вместо
+// «1 × 59 ¥» — цена «¥59» на снимке прочиталась как «×59». Чинятся один раз при запуске (store: migrateQty):
+// количество 1, оплаченная сумма та же. Берутся только карточки со снимка (importBlockId), у которых
+// количество больше 1, цена за штуку ровно 1 ¥ и количество никто не менял руками (по истории изменений).
+// Текст снимка приложение не хранит, поэтому перечитать его нельзя.
+export const qtyMixedWithPrice = (it) => !it.deleted && !!it.importBlockId && it.qty > 1 && it.unitFen == null && it.paidFen === it.qty * 100;
+export function qtyFixList(items, events = []) {
+  const handQty = new Set(events.filter((e) => e.entity === 'item' && e.action !== 'import' && e.action !== 'create' && e.changes?.qty).map((e) => e.entityId));
+  return items.filter((it) => qtyMixedWithPrice(it) && !handQty.has(it.id));
+}
 
 // ——— Карго ———
 // Карго выставляется для пары «закупка + клиент»: p.cargoByClient = { [id клиента]: id карго }.

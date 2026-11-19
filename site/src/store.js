@@ -1,7 +1,7 @@
 // Состояние приложения в памяти + запись в IndexedDB + история изменений.
 // Все изменения идут через commit(): запись помечается версией и устройством, в журнал пишется, что поменялось.
 import * as db from './db.js';
-import { diff, todayLocal, ITEM_FIELDS, PURCHASE_FIELDS, CLIENT_FIELDS, cargoIn, cargoMigration } from './model.js';
+import { diff, todayLocal, ITEM_FIELDS, PURCHASE_FIELDS, CLIENT_FIELDS, cargoIn, cargoMigration, qtyFixList } from './model.js';
 import { startSession as startS, finishSession as finishS } from './order.js';
 import { pairId } from './opis.js';
 import { DEFAULT_ROUNDING } from './money.js';
@@ -67,8 +67,18 @@ export async function load() {
   }
   state.deviceId = device.value;
   await migrateCargo();
+  await migrateQty();
   state.ready = true;
   notify();
+}
+
+// Один раз: карточки со снимка «59 × 1,00 ¥» → «1 × 59 ¥» (см. qtyFixList). В истории товара видно
+// «Количество: 59 → 1» с пометкой «исправлено автоматически». Флаг в настройках — повторно не запускается.
+async function migrateQty() {
+  if (state.settings.qtyFixDone) return;
+  const list = qtyFixList([...state.items.values()], state.events);
+  for (const it of list) await commit('items', it.id, { qty: 1 }, 'qty-fix');
+  await saveSettings({ qtyFixDone: new Date().toISOString(), qtyFixCount: list.length });
 }
 
 // Старые данные: карго клиента → во все его закупки, где карго ещё нет (см. cargoMigration).
@@ -250,8 +260,6 @@ export async function saveItem(item) {
     return patch;
   }, action);
 }
-// «59 × 1,00 ¥» → «1 × 59 ¥»: количество 1, оплаченная сумма та же.
-export const fixQtyMixedWithPrice = (id) => commit('items', id, { qty: 1 }, 'update');
 export const deleteItem = (id) => commit('items', id, { deleted: true }, 'delete');
 export const restoreItem = (id) => commit('items', id, { deleted: false }, 'restore');
 export async function moveItem(id, clientId) {

@@ -1,7 +1,7 @@
 // Карточка товара: создание, правка, перенос другому клиенту, фото, история изменений.
 import { html, useState, useEffect, Header, Empty, ClientPicker, go, dateRu, timeRu, toast } from '../ui.js';
 import * as S from '../store.js';
-import { emptyItem, validateItem, parcelNote, STATUSES, statusLabel, FIELD_LABELS, qtyMixedWithPrice } from '../model.js';
+import { emptyItem, validateItem, parcelNote, STATUSES, statusLabel, FIELD_LABELS } from '../model.js';
 import { centsToInput, fmtCny, fmtByn, formatRate, itemMoney } from '../money.js';
 
 // Сжать фото до 1000 px по длинной стороне (JPEG), чтобы сотни фото помещались в телефоне.
@@ -49,7 +49,7 @@ export function formatChange(field, v) {
   return String(v);
 }
 
-const ACTIONS = { import: 'Из «Команды» (PDD)', create: 'Создан', update: 'Изменён', move: 'Перенесён другому клиенту', delete: 'Удалён', restore: 'Восстановлен' };
+const ACTIONS = { import: 'Из «Команды» (PDD)', create: 'Создан', update: 'Изменён', move: 'Перенесён другому клиенту', delete: 'Удалён', restore: 'Восстановлен', 'qty-fix': 'Исправлено автоматически: количество было перепутано с ценой' };
 
 export function History({ id }) {
   const ev = S.eventsFor(id);
@@ -127,10 +127,6 @@ export function ItemForm({ id, query }) {
   return html`<${Header} title=${existing ? 'Товар' : 'Новый товар'} back=${true} />
   <main>
     ${ro && html`<div class="card info">Закупка в архиве: только просмотр.</div>`}
-    ${existing && qtyMixedWithPrice(existing) && String(f.qty) === String(existing.qty) && html`<div class="card warn">
-      <div><b>Похоже, количество перепутано с ценой:</b> ${existing.qty} × 1,00 ¥. На снимке цена «¥${existing.qty}» прочиталась как «×${existing.qty}».</div>
-      ${!ro && html`<button class="btn block" onClick=${async () => { await S.fixQtyMixedWithPrice(existing.id); setF({ ...f, qty: '1' }); toast('Исправлено: 1 шт.'); }}>Исправить на 1 шт. (1 × ${fmtCny(existing.paidFen)})</button>`}
-    </div>`}
     <form class="form card" onSubmit=${(e) => { e.preventDefault(); save(false); }}>
       <fieldset disabled=${ro}>
       <div class="field">
