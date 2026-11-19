@@ -35,3 +35,21 @@ export function parcelsText(purchaseName, items, { clientName = () => '', client
   }
   return { text: `${out.join('\n')}\n`, copied: withTrack.length, noTrack };
 }
+
+// Копирование одного карго: пары «закупка + клиент» этого карго. Каждая закупка — свой блок «Закуп …»
+// со сквозной нумерацией с 1; товары разных закупок не смешиваются.
+// pairs — [{ purchaseId, clientId, items }] в нужном порядке закупок; ctx: purchaseById, clientName, clientOrder(p).
+export function cargoText(pairs, { purchaseById, clientName, clientOrder = () => [] }) {
+  const pids = [...new Set(pairs.map((x) => x.purchaseId))];
+  const parts = pids.map((pid) => {
+    const p = purchaseById(pid);
+    const mine = pairs.filter((x) => x.purchaseId === pid);
+    const ids = new Set(mine.map((x) => x.clientId));
+    return parcelsText(p?.name || '', mine.flatMap((x) => x.items), { clientName, clientOrder: clientOrder(p).filter((id) => ids.has(id)) });
+  }).filter((r) => r.copied);
+  return {
+    text: parts.map((r) => r.text).join('\n'),
+    copied: parts.reduce((s, r) => s + r.copied, 0),
+    noTrack: pids.flatMap((pid) => parcelsText('', pairs.filter((x) => x.purchaseId === pid).flatMap((x) => x.items)).noTrack),
+  };
+}

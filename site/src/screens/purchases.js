@@ -42,7 +42,7 @@ function PurchaseStats({ p }) {
 function CargoCards({ p }) {
   const cargos = S.cargoList();
   if (!cargos.length) return null;
-  const { groups, all } = cargoTotals(S.itemsOf(p.id), { cargos, cargoOf: (id) => S.state.clients.get(id)?.cargoId || '', purchaseById: S.purchaseById });
+  const { groups, all } = cargoTotals(S.itemsOf(p.id), { cargos, cargoOf: (id) => S.cargoOf(p.id, id), purchaseById: S.purchaseById });
   const card = (icon, name, t, tone = '') => html`<div class="cargo-card ${tone}">
     <div class="cargo-card-h"><span class="cargo-ico" aria-hidden="true">${icon}</span><b>${name}</b></div>
     <div class="small">Всего штук: <b>${t.qty}</b></div>
@@ -227,6 +227,7 @@ export function PurchaseScreen({ id }) {
   const [status, setStatus] = useState('');
   const [pick, setPick] = useState(false);
   const [showOrder, setShowOrder] = useState(false);
+  const [copied, setCopied] = useState(null);
   if (!p) return html`<${Header} title="Закупка" back="/purchases" /><main><${Empty}>Закупка не найдена</${Empty}></main>`;
   const items = S.itemsOf(p.id);
   const deleted = S.itemsOf(p.id, { withDeleted: true }).filter((x) => x.deleted);
@@ -236,6 +237,10 @@ export function PurchaseScreen({ id }) {
     ? sortItems(items.filter((it) => matchItem(it, q, S.clientName(it.clientId)) && (!status || (status === 'notrack' ? !it.track : it.status === Number(status)))), 'order')
     : [];
   const active = S.state.settings.activePurchaseId === p.id;
+  const copyList = async () => {
+    const r = parcelsText(p.name, items, { clientName: S.clientName, clientOrder: clientsInOrder(p) });
+    setCopied({ ...r, ok: r.copied ? await copyText(r.text) : true });
+  };
   return html`<${Header} title=${p.name} back=${ro ? '/history' : '/purchases'}
     right=${!ro && html`<a class="icon-btn" href=${`#/p/${p.id}/edit`} aria-label="Изменить закупку">✎</a>`} />
   <main>
@@ -248,6 +253,7 @@ export function PurchaseScreen({ id }) {
         <a class="btn" href=${`#/opis/${p.id}`}>Опись</a>
         ${!ro && !active && html`<button class="btn" onClick=${() => S.saveSettings({ activePurchaseId: p.id })}>Сделать активной</button>`}
       </div>
+      <button class="btn block" disabled=${!items.length} onClick=${copyList}>📋 Скопировать список</button>
     </section>
     <${OrderingPanel} p=${p} />
 
@@ -269,7 +275,7 @@ export function PurchaseScreen({ id }) {
             const t = totals(its, S.purchaseById);
             return html`<a class="row" href=${`#/p/${p.id}/c/${cid}`}>
               <div class="row-main"><div class="row-title">${S.clientName(cid)}</div>
-                <div class="row-sub">${t.count} тов. · ждут отправки ${t.waiting} · без трека ${t.noTrack}</div></div>
+                <div class="row-sub">${t.count} тов. · ждут отправки ${t.waiting} · без трека ${t.noTrack}${S.cargoName(S.cargoOf(p.id, cid)) ? ` · ${S.cargoName(S.cargoOf(p.id, cid))}` : ''}</div></div>
               <div class="row-side"><div class="row-money">${fmtByn(t.kop)}</div><div class="muted small">${fmtCny(t.fen)}</div></div>
             </a>`;
           })}
@@ -294,6 +300,7 @@ export function PurchaseScreen({ id }) {
       await S.archivePurchase(p.id, !ro);
       toast(ro ? 'Закупка снова открыта' : 'Закупка в архиве');
     }}>${ro ? 'Вернуть из архива' : 'Завершить закупку (в архив)'}</button>
+    ${copied && html`<${CopiedSheet} r=${copied} title="Список закупки" hint=${`Только закупка «${p.name}». Вставьте в мессенджер или в «Посылки».`} onClose=${() => setCopied(null)} />`}
     ${pick && html`<${ClientPicker} title="Добавить клиента" excludeIds=${p.clientIds} onClose=${() => setPick(false)}
       onPick=${async (c) => { setPick(false); await S.addClientToPurchase(p.id, c.id); }} />`}
   </main>`;
@@ -314,6 +321,11 @@ export function PurchaseClient({ pid, cid }) {
   <main>
     <section class="card">
       <div class="muted small">${p.name}</div>
+      ${S.cargoList().length > 0 && html`<label class="cargo-pick">Карго в этой закупке
+        <select value=${S.cargoName(S.cargoOf(pid, cid)) ? S.cargoOf(pid, cid) : ''} disabled=${p.archived} onChange=${(e) => S.setCargo(pid, cid, e.target.value)}>
+          <option value="">без карго</option>
+          ${S.cargoList().map((x) => html`<option value=${x.id}>${x.name}</option>`)}
+        </select></label>`}
       <div class="stats three">
         <${Stat} label="товаров" value=${t.count} />
         <${Stat} label="сумма, ¥" value=${fmtCny(t.fen).replace(' ¥', '')} />
@@ -386,11 +398,11 @@ export function PurchaseAllItems({ id }) {
         <option value="old">Сначала старые</option>
       </select>
     </div>
-    <button class="btn block" disabled=${!items.length} onClick=${copyForParcels}>📋 Скопировать для «Посылок»${cid ? `: ${S.clientName(cid)}` : ''}</button>
+    <button class="btn block" disabled=${!items.length} onClick=${copyForParcels}>📋 Скопировать список${cid ? `: ${S.clientName(cid)}` : ''}</button>
     ${(q.trim() || cid) && html`<p class="muted small">Найдено: ${t.count} · ${fmtByn(t.kop)}</p>`}
     <div class="list">${list.map((it, i) => html`<${ItemRow} item=${it} clientTag=${true} num=${i + 1} />`)}</div>
     ${!list.length && html`<${Empty}>${items.length ? 'Ничего не найдено' : 'Товаров пока нет'}</${Empty}>`}
-    ${copied && html`<${CopiedSheet} r=${copied} title="Для «Посылок»" hint="Откройте «Посылки» и вставьте." onClose=${() => setCopied(null)} />`}
+    ${copied && html`<${CopiedSheet} r=${copied} title="Список закупки" hint=${`Только закупка «${p.name}». Вставьте в мессенджер или в «Посылки».`} onClose=${() => setCopied(null)} />`}
   </main>`;
 }
 

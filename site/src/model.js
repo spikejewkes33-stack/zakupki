@@ -179,7 +179,7 @@ export function diff(before, after, fields) {
 }
 
 export const ITEM_FIELDS = ['name', 'nameCn', 'variant', 'paidFen', 'clientId', 'photoId', 'url', 'orderDate', 'pddOrderNo', 'color', 'size', 'kit', 'qty', 'unitFen', 'status', 'track', 'carrier', 'note', 'deleted'];
-export const PURCHASE_FIELDS = ['name', 'startDate', 'endDate', 'rateMicro', 'rounding', 'archived', 'clientIds', 'sessions', 'opis', 'deleted'];
+export const PURCHASE_FIELDS = ['name', 'startDate', 'endDate', 'rateMicro', 'rounding', 'archived', 'clientIds', 'sessions', 'opis', 'cargoByClient', 'deleted'];
 export const CLIENT_FIELDS = ['name', 'contact', 'note', 'cargoId', 'deleted'];
 
 export const FIELD_LABELS = {
@@ -187,8 +187,52 @@ export const FIELD_LABELS = {
   color: 'Цвет', size: 'Размер', kit: 'Комплектация', qty: 'Количество', unitFen: 'Цена ¥', status: 'Статус', track: 'Трек',
   carrier: 'Перевозчик', note: 'Заметка', deleted: 'Удалён', startDate: 'Дата закупки', endDate: 'Дата завершения',
   rateMicro: 'Курс', rounding: 'Округление', archived: 'В архиве', clientIds: 'Клиенты', sessions: 'Порядок оформления',
-  opis: 'Опись', contact: 'Контакт', cargoId: 'Карго',
+  opis: 'Опись', contact: 'Контакт', cargoId: 'Карго', cargoByClient: 'Карго клиентов',
 };
+
+// ——— Карго ———
+// Карго выставляется для пары «закупка + клиент»: p.cargoByClient = { [id клиента]: id карго }.
+// Смена карго в одной закупке не трогает другие.
+export const cargoIn = (p, clientId) => p?.cargoByClient?.[clientId] || '';
+
+// Переход со старых данных (карго было у клиента целиком, client.cargoId): карго клиента проставляется
+// во все его закупки (он в списке клиентов закупки или у него там есть товары), где карго ещё нет.
+// Возвращает изменения: { purchases: [{ id, cargoByClient }], clients: [{ id, cargoId }] } — у клиента карго
+// переезжает в cargoIdBefore (ничего не теряется), cargoId становится пустым, второй раз перенос не идёт.
+export function cargoMigration(purchases, clients, items) {
+  const maps = new Map();
+  const moved = [];
+  for (const c of clients) {
+    if (!c.cargoId) continue;
+    for (const p of purchases) {
+      const has = (p.clientIds || []).includes(c.id) || items.some((it) => it.purchaseId === p.id && it.clientId === c.id);
+      if (!has) continue;
+      const map = maps.get(p.id) || { ...(p.cargoByClient || {}) };
+      if (!map[c.id]) map[c.id] = c.cargoId;
+      maps.set(p.id, map);
+    }
+    moved.push({ id: c.id, cargoId: '', cargoIdBefore: c.cargoId });
+  }
+  const changed = [...maps].filter(([id, map]) => JSON.stringify(map) !== JSON.stringify(purchases.find((p) => p.id === id).cargoByClient || {}));
+  return { purchases: changed.map(([id, cargoByClient]) => ({ id, cargoByClient })), clients: moved };
+}
+
+// Пары «закупка + клиент» по карго (экран «Клиенты»): клиент стоит в том карго, что у него в этой закупке;
+// в двух закупках с разными карго он в обоих, у каждой пары свои товары. Пары без товаров и без места
+// в списке клиентов закупки не показываются. purchases — какие закупки брать (обычно открытые).
+export function cargoPairs(purchases, items, cargos) {
+  const known = new Set(cargos.map((c) => c.id));
+  const pairs = [];
+  for (const p of purchases) {
+    const its = items.filter((it) => it.purchaseId === p.id && !it.deleted);
+    const ids = [...new Set([...(p.clientIds || []), ...its.map((it) => it.clientId)])];
+    for (const cid of ids) {
+      const c = cargoIn(p, cid);
+      pairs.push({ purchaseId: p.id, clientId: cid, cargoId: known.has(c) ? c : '', items: its.filter((it) => it.clientId === cid) });
+    }
+  }
+  return pairs;
+}
 
 // Все товары закупки одним списком (вид поверх тех же товаров, ничего не копируется).
 // opts: q — поиск, clientId — только этот клиент, sort — 'client' | 'new' | 'old'.

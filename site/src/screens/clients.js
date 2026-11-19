@@ -1,12 +1,12 @@
 // Клиенты: список (с разделением по карго) и карточка клиента со всеми закупками.
 import { html, useState, Header, Empty, Search, ItemRow, Stat, Sheet, CopiedSheet, copyText, go, dateRu, toast } from '../ui.js';
 import * as S from '../store.js';
-import { totals, matchItem, sortItems } from '../model.js';
+import { totals, matchItem, sortItems, cargoPairs } from '../model.js';
 import { fmtByn } from '../money.js';
 import { clientsInOrder } from '../order.js';
-import { parcelsText } from '../parcels.js';
+import { cargoText } from '../parcels.js';
 
-// Список карго: добавить, переименовать, удалить (клиенты удалённого карго становятся «без карго»).
+// Список карго: добавить, переименовать, удалить (клиенты удалённого карго во всех закупках становятся «без карго»).
 function CargoSheet({ onClose }) {
   const [name, setName] = useState('');
   const [names, setNames] = useState(() => Object.fromEntries(S.cargoList().map((c) => [c.id, c.name])));
@@ -24,8 +24,8 @@ function CargoSheet({ onClose }) {
     toast('Переименовано');
   };
   const del = async (c) => {
-    const n = [...S.state.clients.values()].filter((x) => !x.deleted && x.cargoId === c.id).length;
-    if (!confirm(`Удалить карго «${c.name}»?${n ? ` Его клиенты (${n}) станут «без карго», сами клиенты останутся.` : ''}`)) return;
+    const n = [...S.state.purchases.values()].reduce((a, p) => a + Object.values(p.cargoByClient || {}).filter((v) => v === c.id).length, 0);
+    if (!confirm(`Удалить карго «${c.name}»?${n ? ` Его клиенты в закупках (${n}) станут «без карго», сами клиенты и товары останутся.` : ''}`)) return;
     await S.deleteCargo(c.id);
   };
   return html`<${Sheet} title="Карго" onClose=${onClose}>
@@ -34,13 +34,18 @@ function CargoSheet({ onClose }) {
         onBlur=${() => rename(c)} onKeyDown=${(e) => e.key === 'Enter' && e.target.blur()} aria-label="Название карго" />
       <button class="btn small danger" onClick=${() => del(c)}>Удалить</button>
     </div>`)}
-    ${!S.cargoList().length && html`<p class="muted small">Карго пока нет. Добавьте, например, «Карго 1» и «Карго 2», потом выберите карго в строке каждого клиента.</p>`}
+    ${!S.cargoList().length && html`<p class="muted small">Карго пока нет. Добавьте, например, «Карго 1» и «Карго 2», потом в закупке откройте клиента и выберите его карго.</p>`}
+    <p class="muted small">Карго выбирается у клиента внутри закупки: в разных закупках у одного клиента оно может быть разным.</p>
     <form class="inline-form" onSubmit=${add}>
       <input placeholder="Новое карго" value=${name} onInput=${(e) => setName(e.target.value)} />
       <button class="btn primary" type="submit">Добавить</button>
     </form>
   </${Sheet}>`;
 }
+
+// Открытые закупки, старые первыми: в них клиенты делятся по карго.
+const openPurchases = () => [...S.state.purchases.values()].filter((p) => !p.deleted && !p.archived)
+  .sort((a, b) => String(a.startDate).localeCompare(String(b.startDate)) || String(a.createdAt).localeCompare(String(b.createdAt)));
 
 export function ClientList() {
   const [q, setQ] = useState('');
@@ -50,48 +55,47 @@ export function ClientList() {
   const [copied, setCopied] = useState(null);
   const cargos = S.cargoList();
   const items = [...S.state.items.values()].filter((x) => !x.deleted);
-  const list = [...S.state.clients.values()]
-    .filter((c) => !c.deleted && c.name.toLowerCase().includes(q.trim().toLowerCase()))
-    .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-  const known = (c) => cargos.some((x) => x.id === c.cargoId);
+  const match = (c) => !!c && !c.deleted && c.name.toLowerCase().includes(q.trim().toLowerCase());
+  const list = [...S.state.clients.values()].filter(match).sort((a, b) => a.name.localeCompare(b.name, 'ru'));
   const add = async (e) => {
     e.preventDefault();
     if (!name.trim()) return;
     if (S.findClientByName(name)) return toast('Такой клиент уже есть');
-    const c = await S.createClient({ name, cargoId: cargo && cargo !== 'none' ? cargo : '' });
+    const c = await S.createClient({ name });
     setName('');
     go(`/client/${c.id}`);
     return undefined;
   };
-  // Скопировать клиентов карго с товарами активной закупки: обычный текст для мессенджера.
+  // Карго — у пары «закупка + клиент»: клиент стоит в том карго, что у него в этой закупке.
+  const pairs = cargos.length ? cargoPairs(openPurchases(), items, cargos).filter((x) => match(S.state.clients.get(x.clientId))) : [];
+  // Скопировать карго: его клиенты по закупкам, у каждой закупки свой блок «Закуп …» (обычный текст для мессенджера).
   const copyCargo = async (cg) => {
-    const p = S.activePurchase();
-    if (!p) return toast('Нет активной закупки — сделайте закупку активной на главной');
-    const ids = new Set([...S.state.clients.values()].filter((c) => !c.deleted && c.cargoId === cg.id).map((c) => c.id));
-    const r = parcelsText(p.name, S.itemsOf(p.id).filter((x) => ids.has(x.clientId)), { clientName: S.clientName, clientOrder: clientsInOrder(p).filter((id) => ids.has(id)) });
-    if (!r.copied && !r.noTrack.length) return toast(`У клиентов «${cg.name}» нет товаров в закупке «${p.name}»`);
-    setCopied({ ...r, ok: r.copied ? await copyText(r.text) : true, title: `Для карго «${cg.name}»`, hint: `Закупка «${p.name}». Вставьте в мессенджер.` });
+    const r = cargoText(pairs.filter((x) => x.cargoId === cg.id), { purchaseById: S.purchaseById, clientName: S.clientName, clientOrder: clientsInOrder });
+    if (!r.copied && !r.noTrack.length) return toast(`У клиентов «${cg.name}» нет товаров в открытых закупках`);
+    setCopied({ ...r, ok: r.copied ? await copyText(r.text) : true, title: `Для карго «${cg.name}»`, hint: 'Вставьте в мессенджер.' });
     return undefined;
   };
   const row = (c) => {
     const its = items.filter((x) => x.clientId === c.id);
     const t = totals(its, S.purchaseById);
     const np = new Set(its.map((x) => x.purchaseId)).size;
-    return html`<div class="row client-row" key=${c.id}>
-      <a class="row-main" href=${`#/client/${c.id}`}><div class="row-title">${c.name}</div><div class="row-sub">${t.count} товаров · закупок: ${np} · ${fmtByn(t.kop)}</div></a>
-      ${cargos.length > 0 && html`<select value=${known(c) ? c.cargoId : ''} aria-label=${`Карго клиента ${c.name}`}
-        onChange=${(e) => S.updateClient(c.id, { cargoId: e.target.value })}>
-        <option value="">без карго</option>
-        ${cargos.map((x) => html`<option value=${x.id}>${x.name}</option>`)}
-      </select>`}
-    </div>`;
+    return html`<a class="row" key=${c.id} href=${`#/client/${c.id}`}><div class="row-main"><div class="row-title">${c.name}</div><div class="row-sub">${t.count} товаров · закупок: ${np} · ${fmtByn(t.kop)}</div></div></a>`;
   };
-  // Группы: каждое карго, потом «без карго». Фильтр оставляет одну группу.
+  // Строка пары: клиент в закупке, только его товары этой закупки.
+  const pairRow = (x) => {
+    const t = totals(x.items, S.purchaseById);
+    return html`<a class="row" key=${`${x.purchaseId}:${x.clientId}`} href=${`#/p/${x.purchaseId}/c/${x.clientId}`}>
+      <div class="row-main"><div class="row-title">${S.clientName(x.clientId)}</div>
+        <div class="row-sub">${S.purchaseById(x.purchaseId)?.name} · ${t.count} тов. · ${fmtByn(t.kop)}</div></div></a>`;
+  };
+  // Группы: каждое карго, потом «без карго» (пары без карго и клиенты, которых нет в открытых закупках).
+  const inOpen = new Set(pairs.map((x) => x.clientId));
   const groups = cargos.length
-    ? [...cargos.map((x) => ({ cargo: x, clients: list.filter((c) => c.cargoId === x.id) })), { cargo: null, clients: list.filter((c) => !known(c)) }]
+    ? [...cargos.map((x) => ({ cargo: x, pairs: pairs.filter((y) => y.cargoId === x.id), clients: [] })),
+      { cargo: null, pairs: pairs.filter((y) => !y.cargoId), clients: list.filter((c) => !inOpen.has(c.id)) }]
       .filter((g) => (cargo === '' ? true : cargo === 'none' ? !g.cargo : g.cargo?.id === cargo))
-      .filter((g) => g.clients.length || g.cargo)
-    : [{ cargo: null, clients: list, plain: true }];
+      .filter((g) => g.pairs.length || g.clients.length || g.cargo)
+    : [{ cargo: null, pairs: [], clients: list, plain: true }];
   return html`<${Header} title="Клиенты" />
   <main>
     <form class="inline-form" onSubmit=${add}>
@@ -108,11 +112,11 @@ export function ClientList() {
     </div>
     <button class="btn block" onClick=${() => setManage(true)}>${cargos.length ? 'Карго: добавить, переименовать, удалить' : '+ Разделить клиентов по карго'}</button>
     ${groups.map((g) => html`${!g.plain && html`<div class="cargo-head">
-        <h3>${g.cargo ? g.cargo.name : 'Без карго'} · ${g.clients.length}</h3>
+        <h3>${g.cargo ? g.cargo.name : 'Без карго'} · ${g.pairs.length + g.clients.length}</h3>
         ${g.cargo && html`<button class="btn small" onClick=${() => copyCargo(g.cargo)}>📋 Скопировать</button>`}
       </div>`}
-      <div class="list">${g.clients.map(row)}</div>
-      ${!g.plain && !g.clients.length && html`<p class="muted small">Клиентов нет — выберите это карго в строке клиента.</p>`}`)}
+      <div class="list">${g.pairs.map(pairRow)}${g.clients.map(row)}</div>
+      ${!g.plain && !g.pairs.length && !g.clients.length && html`<p class="muted small">Клиентов нет — в закупке откройте клиента и выберите это карго.</p>`}`)}
     ${!list.length && html`<${Empty}>${q ? 'Не найдено' : 'Клиентов пока нет'}</${Empty}>`}
     ${manage && html`<${CargoSheet} onClose=${() => setManage(false)} />`}
     ${copied && html`<${CopiedSheet} r=${copied} title=${copied.title} hint=${copied.hint} onClose=${() => setCopied(null)} />`}

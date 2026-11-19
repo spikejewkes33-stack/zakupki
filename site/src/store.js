@@ -1,7 +1,7 @@
 // Состояние приложения в памяти + запись в IndexedDB + история изменений.
 // Все изменения идут через commit(): запись помечается версией и устройством, в журнал пишется, что поменялось.
 import * as db from './db.js';
-import { diff, todayLocal, ITEM_FIELDS, PURCHASE_FIELDS, CLIENT_FIELDS } from './model.js';
+import { diff, todayLocal, ITEM_FIELDS, PURCHASE_FIELDS, CLIENT_FIELDS, cargoIn, cargoMigration } from './model.js';
 import { startSession as startS, finishSession as finishS } from './order.js';
 import { pairId } from './opis.js';
 import { DEFAULT_ROUNDING } from './money.js';
@@ -66,8 +66,17 @@ export async function load() {
     await db.put('meta', device);
   }
   state.deviceId = device.value;
+  await migrateCargo();
   state.ready = true;
   notify();
+}
+
+// Старые данные: карго клиента → во все его закупки, где карго ещё нет (см. cargoMigration).
+// Идёт и после восстановления старой копии (load вызывается заново).
+async function migrateCargo() {
+  const m = cargoMigration([...state.purchases.values()], [...state.clients.values()], [...state.items.values()]);
+  for (const p of m.purchases) await commit('purchases', p.id, { cargoByClient: p.cargoByClient }, 'cargo-migrate');
+  for (const c of m.clients) await commit('clients', c.id, { cargoId: c.cargoId, cargoIdBefore: c.cargoIdBefore }, 'cargo-migrate');
 }
 
 // Все изменения идут по очереди: быстрые нажатия подряд не затирают друг друга.
@@ -179,13 +188,13 @@ export const opisEdit = (pid, keys, itemIds, patch) => opisChange(pid, (o) => {
 export const opisReset = (pid) => opisChange(pid, () => ({ merges: [], rejected: [], edits: {} }), 'opis-reset');
 
 // ——— Клиенты ———
-export const createClient = ({ name, contact = '', note = '', cargoId = '' }) =>
-  commit('clients', null, { name: name.trim(), contact, note, cargoId, deleted: false }, 'create');
+export const createClient = ({ name, contact = '', note = '' }) =>
+  commit('clients', null, { name: name.trim(), contact, note, deleted: false }, 'create');
 
 export const updateClient = (id, patch) => commit('clients', id, patch);
 
-// Карго: список ведёт пользователь (добавить, переименовать, удалить), у клиента — cargoId.
-// Хранится в настройках и попадает в резервную копию.
+// Карго: список ведёт пользователь (добавить, переименовать, удалить). Список — в настройках (и в резервной копии),
+// карго клиента — в закупке, для каждой пары «закупка + клиент» своё (p.cargoByClient).
 export const cargoList = () => state.settings.cargos || [];
 export const cargoName = (id) => cargoList().find((c) => c.id === id)?.name || '';
 export async function addCargo(name) {
@@ -194,9 +203,20 @@ export async function addCargo(name) {
   return c;
 }
 export const renameCargo = (id, name) => saveSettings({ cargos: cargoList().map((c) => (c.id === id ? { ...c, name: name.trim() } : c)) });
-// Удаление карго: его клиенты становятся «без карго», сами клиенты остаются.
+export const cargoOf = (pid, cid) => cargoIn(state.purchases.get(pid), cid);
+export const setCargo = (pid, cid, cargoId) => commit('purchases', pid, (p) => {
+  const map = { ...(p.cargoByClient || {}) };
+  if (cargoId) map[cid] = cargoId;
+  else delete map[cid];
+  return { cargoByClient: map };
+}, 'cargo');
+// Удаление карго: клиенты с ним во всех закупках становятся «без карго», сами клиенты и товары остаются.
 export async function deleteCargo(id) {
-  for (const c of state.clients.values()) if (c.cargoId === id) await updateClient(c.id, { cargoId: '' });
+  for (const p of state.purchases.values()) {
+    if (Object.values(p.cargoByClient || {}).includes(id)) {
+      await commit('purchases', p.id, (x) => ({ cargoByClient: Object.fromEntries(Object.entries(x.cargoByClient || {}).filter(([, v]) => v !== id)) }), 'cargo');
+    }
+  }
   await saveSettings({ cargos: cargoList().filter((c) => c.id !== id) });
 }
 
