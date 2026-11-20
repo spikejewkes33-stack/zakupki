@@ -8,7 +8,8 @@ export const STATUSES = [
   { id: 3, label: 'Продавец отправил товар', short: 'Отправлен' },
   { id: 4, label: 'Трек-номер получен', short: 'Есть трек' },
   { id: 5, label: 'Товар в пути', short: 'В пути' },
-  { id: 6, label: 'Товар прибыл на склад', short: '✓ Приехал' },
+  { id: 6, label: 'Товар прибыл на склад', short: 'На складе' },
+  { id: 7, label: 'Посылка у меня (отсканирована)', short: '✓ Приехал' },
 ];
 export const TRACK_STATUS = 4;
 export const statusLabel = (id) => STATUSES.find((s) => s.id === id)?.label || '—';

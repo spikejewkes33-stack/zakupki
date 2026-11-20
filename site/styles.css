@@ -150,12 +150,13 @@ fieldset { border: 0; padding: 0; margin: 0; display: flex; flex-direction: colu
 .chip.s3 { background: #e8e5ff; color: #4c3fb5; }
 .chip.s4 { background: var(--accent-soft); color: var(--accent); }
 .chip.s5 { background: #dff5f0; color: #046c58; }
-.chip.s6 { background: #def7e3; color: #166534; }
+.chip.s6 { background: #e0ecff; color: #1d4ed8; }
+.chip.s7 { background: #188a42; color: #fff; }
 @media (prefers-color-scheme: dark) {
   .chip.s2 { background: #3a2c10; color: #fcd34d; }
   .chip.s3 { background: #2a2550; color: #c4b5fd; }
   .chip.s5 { background: #0f3530; color: #5eead4; }
-  .chip.s6 { background: #0f3a1d; color: #86efac; }
+  .chip.s6 { background: #172a4d; color: #93c5fd; }
 }
 
 .ordering.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
@@ -266,7 +267,9 @@ details summary { cursor: pointer; }
 .scan-progress .bar i { display: block; height: 100%; background: var(--ok); }
 .card .scan-progress + .btn { margin-top: 12px; }
 .arr-row { display: flex; align-items: center; border-bottom: 1px solid var(--line); }
-.arr-row.ok { box-shadow: inset 4px 0 var(--ok); }
+.arr-row.ok { box-shadow: inset 5px 0 var(--ok); }
+.arr-row.no { box-shadow: inset 5px 0 var(--danger); }
+.arr-row .error { font-size: 12px; font-weight: 600; }
 .arr-row .row { flex: 1; min-width: 0; border-bottom: 0; }
 .arr-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-right: 10px; flex: none; }
 .other-text { color: #7a3db8; }

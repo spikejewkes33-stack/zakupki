@@ -71,8 +71,8 @@ test('быстрая серия сканов: каждая отметка зап
   // В памяти и в базе одно и то же; у каждого товара ровно одно событие «отсканирован».
   const stored = new Map((await db.getAll('items')).map((x) => [x.id, x]));
   for (const id of ['пижама', 'носки', 'шарф', 'кружка', 'варежки']) {
-    assert.equal(stored.get(id).status, 6, id);
-    assert.equal(S.state.items.get(id).status, 6, id);
+    assert.equal(stored.get(id).status, 7, id);
+    assert.equal(S.state.items.get(id).status, 7, id);
     const ev = (await db.getAll('events')).filter((e) => e.entityId === id && e.action === 'scan');
     assert.equal(ev.length, 1, id);
   }
@@ -99,7 +99,7 @@ test('«Нет в списке» и ручная отмена: журнал чи
   await S.setArrived('кружка', false);
   assert.equal(S.state.items.get('кружка').status, 5);
   await S.setArrived('кружка', true);
-  assert.equal(S.state.items.get('кружка').status, 6);
+  assert.equal(S.state.items.get('кружка').status, 7);
 });
 
 test('закрытую закупку сканировать нельзя', async () => {

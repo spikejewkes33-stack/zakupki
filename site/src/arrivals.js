@@ -1,11 +1,11 @@
-// Склад: что значит «приехал», сверка отсканированного трека с закупкой, списки «Приехали / Ожидаются / Нет в списке».
-// «Приехал» — это статус 6 «Товар прибыл на склад»: отдельного поля нет, поэтому плитки, итоги и опись
-// считают так же, как сканер. Когда и откуда пришёл статус, видно в истории товара (действие 'scan').
+// Приёмка: что значит «приехал», сверка отсканированного трека с закупкой, списки «Приехали / Не отсканированы / Нет в списке».
+// Два шага: 6 «На складе» — сверка со списком склада (руками или по трекингу),
+// 7 «Приехал» — посылка у меня, отсканирована. Когда и откуда пришёл статус, видно в истории товара (действие 'scan').
 import { findTrackInCode } from './scan/match.js';
 import { normalizeTrack } from './scan/track.js';
 import { TRACK_STATUS } from './model.js';
 
-export const ARRIVED = 6;
+export const ARRIVED = 7;
 export const isArrived = (it) => it.status >= ARRIVED;
 const isOpen = (p) => !!p && !p.archived && !p.deleted;
 
@@ -25,8 +25,8 @@ export function trackIndex(items, purchaseById) {
 export const lookupTrack = (code, index) => findTrackInCode(code, index)?.track ?? null;
 
 // Что делает скан трека в закупке pid. Отмечается только эта закупка:
-// - 'found'  — есть неотмеченные товары с этим треком, все они станут «На складе» (fresh);
-// - 'repeat' — все товары с этим треком уже на складе;
+// - 'found'  — есть неотмеченные товары с этим треком, все они станут «Приехал» (fresh);
+// - 'repeat' — все товары с этим треком уже отсканированы;
 // - 'other'  — трека нет в этой закупке, но он есть в другой открытой: ничего не отмечается;
 // - 'unknown' — трека нет ни в одной открытой закупке.
 export function scanOutcome(track, index, pid) {
@@ -40,7 +40,7 @@ export function scanOutcome(track, index, pid) {
   return { result: fresh.length ? 'found' : 'repeat', items: mine, fresh, otherPids: [] };
 }
 
-// Последнее событие, которое поставило товару «На складе»: itemId → время (ISO).
+// Последнее событие, которое поставило товару «Приехал»: itemId → время (ISO).
 export function arrivalTimes(events) {
   const at = new Map();
   for (const e of events) {
@@ -90,4 +90,11 @@ export function missingCodes(scans) {
     by.set(s.code, e);
   }
   return [...by.values()].sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+}
+
+// Один раз после перехода на два шага: раньше скан ставил только «На складе» (6).
+// Товары, которые уже сканировали (найден или повтор), а у них всё ещё 6, становятся «Приехал».
+export function receivedFixList(items, scans) {
+  const scanned = new Set(scans.filter((r) => r.result === 'found' || r.result === 'repeat').flatMap((r) => r.itemIds || []));
+  return items.filter((it) => !it.deleted && it.status === 6 && scanned.has(it.id));
 }

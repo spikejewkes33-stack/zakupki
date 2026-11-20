@@ -1,9 +1,9 @@
-// Склад: сканер штрихкодов внутри открытой закупки и списки «Приехали / Ожидаются / Нет в списке».
+// Приёмка: сканер штрихкодов внутри открытой закупки и списки «Приехали / Не отсканированы / Нет в списке».
 // Камера, распознавание, фильтр кадров, звук и вибрация — модули «Посылок» (src/scan/), без изменений.
 import { html, useState, useEffect, useRef, Header, Empty, Search, ItemRow, go, timeRu, toast } from '../ui.js';
 import * as S from '../store.js';
 import { itemTitle, matchItem, sortItems } from '../model.js';
-import { arrivalLists, arrivalTimes, missingCodes } from '../arrivals.js';
+import { ARRIVED, arrivalLists, arrivalTimes, missingCodes } from '../arrivals.js';
 import { ScanFilter } from '../scan/scanfilter.js';
 import { openCamera, closeCamera, createScanLoop, decodeImage, listCameras, torchControl, zoomControl } from '../scan/scanner.js';
 import { signal, soundOn, setSound, unlockAudio } from '../scan/feedback.js';
@@ -15,14 +15,14 @@ const plural = (n, one, few, many) => {
   return a === 1 && b !== 11 ? one : a >= 2 && a <= 4 && (b < 12 || b > 14) ? few : many;
 };
 
-// Вход на склад на экране закупки и на главной: кнопка сканера и прогресс «Приехали X из Y».
+// Вход в приёмку на экране закупки и на главной: кнопка сканера и прогресс «Приехали X из Y».
 export function ScanEntry({ p, primary = true }) {
   const l = arrivalLists(S.itemsOf(p.id));
   if (!l.total) return null;
   return html`<div class="scan-entry">
-    ${isOpen(p) && html`<a class="btn block ${primary ? 'primary big' : ''}" href=${`#/p/${p.id}/scan`} onClick=${unlockAudio}>📷 Сканировать на складе</a>`}
+    ${isOpen(p) && html`<a class="btn block ${primary ? 'primary big' : ''}" href=${`#/p/${p.id}/scan`} onClick=${unlockAudio}>📷 Сканировать посылки</a>`}
     <a class="scan-progress" href=${`#/p/${p.id}/arrived`}>
-      <span>Приехали на склад: <b>${l.done} из ${l.total}</b></span>
+      <span>Приехали (по скану): <b>${l.done} из ${l.total}</b></span>
       <span class="bar"><i style=${`width:${Math.floor((l.done * 100) / l.total)}%`}></i></span>
     </a>
   </div>`;
@@ -193,9 +193,9 @@ export function ScanScreen({ id }) {
   </section>`;
 }
 
-const TABS = [['all', 'Все по клиентам'], ['arrived', 'Приехали'], ['waiting', 'Ожидаются'], ['missing', 'Нет в списке']];
+const TABS = [['all', 'Все по клиентам'], ['arrived', 'Приехали'], ['waiting', 'Не отсканированы'], ['missing', 'Нет в списке']];
 
-// Все товары закупки по клиентам: у каждого видно, что приехало (✓) и чего ещё нет.
+// Все товары закупки по клиентам: зелёным — отсканированы, красным — ещё нет.
 function byClient(items) {
   const groups = new Map();
   for (const it of items) {
@@ -214,7 +214,7 @@ export function ArrivalsScreen({ id, query }) {
   useEffect(() => {
     if (p) S.loadScans(id);
   }, [id]);
-  if (!p || p.deleted) return html`<${Header} title="Склад" back="/purchases" /><main><${Empty}>Закупка не найдена</${Empty}></main>`;
+  if (!p || p.deleted) return html`<${Header} title="Приёмка" back="/purchases" /><main><${Empty}>Закупка не найдена</${Empty}></main>`;
   const ro = !isOpen(p);
   const l = arrivalLists(S.itemsOf(id));
   const scans = S.scansOf(id);
@@ -224,10 +224,10 @@ export function ArrivalsScreen({ id, query }) {
   const arrived = find(l.arrived).sort((a, b) => (times.get(b.id) || '').localeCompare(times.get(a.id) || ''));
   const counts = { all: l.total, arrived: l.done, waiting: l.waiting.length + l.noTrack.length, missing: missing.length };
   // on — кнопка ставит отметку (товар ещё не приехал), иначе снимает.
-  const row = (it, on, showClient = true) => html`<div class=${`arr-row ${on ? '' : 'ok'}`} key=${it.id}>
+  const row = (it, on, showClient = true) => html`<div class=${`arr-row ${on ? 'no' : 'ok'}`} key=${it.id}>
     <${ItemRow} item=${it} showClient=${showClient} />
     <div class="arr-side">
-      ${on ? html`<span class="muted small">ещё нет</span>` : times.get(it.id) && html`<span class="muted small">${timeRu(times.get(it.id))}</span>`}
+      ${on ? html`<span class="error small">не отсканирован</span>` : times.get(it.id) && html`<span class="muted small">${timeRu(times.get(it.id))}</span>`}
       ${!ro && html`<button class="btn small" onClick=${async () => {
         if (!on && !confirm(`«${itemTitle(it)}» не приехал? Статус вернётся прежний.`)) return;
         await S.setArrived(it.id, on);
@@ -236,7 +236,7 @@ export function ArrivalsScreen({ id, query }) {
     </div>
   </div>`;
   const groups = tab === 'all' ? byClient(find(S.itemsOf(id))) : [];
-  return html`<${Header} title="Склад" back=${`/p/${id}`} />
+  return html`<${Header} title="Приёмка" back=${`/p/${id}`} />
   <main>
     <section class="card">
       <div class="eyebrow">${p.name}${ro ? ' · закрыта' : ''}</div>
@@ -248,10 +248,10 @@ export function ArrivalsScreen({ id, query }) {
     ${tab !== 'missing' && html`<${Search} value=${q} onInput=${setQ} placeholder="Товар, трек, клиент" />`}
     ${tab === 'all' && html`
       ${groups.map((g) => {
-        const done = g.list.filter((it) => it.status >= 6).length;
+        const done = g.list.filter((it) => it.status >= ARRIVED).length;
         return html`<h3 class="arr-client" key=${g.cid}>${g.name}
           <span class=${done === g.list.length ? 'ok-text' : 'muted'}>приехало ${done} из ${g.list.length}</span></h3>
-          <div class="list">${g.list.map((it) => row(it, it.status < 6, false))}</div>`;
+          <div class="list">${g.list.map((it) => row(it, it.status < ARRIVED, false))}</div>`;
       })}
       ${!groups.length && html`<${Empty}>${q ? 'Ничего не найдено' : 'В закупке нет товаров'}</${Empty}>`}`}
     ${tab === 'arrived' && html`
@@ -259,7 +259,7 @@ export function ArrivalsScreen({ id, query }) {
       ${!arrived.length && html`<${Empty}>${q ? 'Ничего не найдено' : 'Пока ничего не приехало'}</${Empty}>`}`}
     ${tab === 'waiting' && html`
       <div class="list">${sortItems(find(l.waiting), 'order').map((it) => row(it, true))}</div>
-      ${!l.waiting.length && !l.noTrack.length && html`<${Empty}>Все товары на складе</${Empty}>`}
+      ${!l.waiting.length && !l.noTrack.length && html`<${Empty}>Все товары отсканированы</${Empty}>`}
       ${l.noTrack.length > 0 && html`<h3>Без трека: сканер их не найдёт (${l.noTrack.length})</h3>
         <div class="list">${sortItems(find(l.noTrack), 'order').map((it) => row(it, true))}</div>`}`}
     ${tab === 'missing' && html`

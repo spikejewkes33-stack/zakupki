@@ -6,7 +6,7 @@ import { startSession as startS, finishSession as finishS } from './order.js';
 import { pairId } from './opis.js';
 import { DEFAULT_ROUNDING } from './money.js';
 import { emptyItem } from './model.js';
-import { ARRIVED, isArrived, trackIndex, lookupTrack as findTrack, scanOutcome, statusBeforeArrival } from './arrivals.js';
+import { ARRIVED, isArrived, receivedFixList, trackIndex, lookupTrack as findTrack, scanOutcome, statusBeforeArrival } from './arrivals.js';
 import { normalizeTrack } from './scan/track.js';
 
 export const APP_ID = 'pdd-zakupki';
@@ -73,6 +73,7 @@ export async function load() {
   state.deviceId = device.value;
   await migrateCargo();
   await migrateQty();
+  await migrateReceived();
   state.ready = true;
   notify();
 }
@@ -84,6 +85,14 @@ async function migrateQty() {
   const list = qtyFixList([...state.items.values()], state.events);
   for (const it of list) await commit('items', it.id, { qty: 1 }, 'qty-fix');
   await saveSettings({ qtyFixDone: new Date().toISOString(), qtyFixCount: list.length });
+}
+
+// Один раз: сканы, сделанные, когда скан ставил «На складе», переводятся в «Приехал» (см. receivedFixList).
+async function migrateReceived() {
+  if (state.settings.receivedFixDone) return;
+  const list = receivedFixList([...state.items.values()], await db.getAll('scans'));
+  for (const it of list) await commit('items', it.id, { status: ARRIVED }, 'scan');
+  await saveSettings({ receivedFixDone: new Date().toISOString(), receivedFixCount: list.length });
 }
 
 // Старые данные: карго клиента → во все его закупки, где карго ещё нет (см. cargoMigration).
@@ -376,8 +385,8 @@ export function shapeScore(code) {
   return (tracks.some((t) => prefix(t) === prefix(norm)) ? 2 : 0) + (tracks.some((t) => t.length === norm.length) ? 1 : 0);
 }
 
-// Скан на складе в закупке pid: track — трек из открытых закупок (lookupTrack) или null, если кода нет нигде.
-// Товары этой закупки с треком получают «На складе», в журнал 'scans' пишется запись — всё одной транзакцией.
+// Скан посылки в закупке pid: track — трек из открытых закупок (lookupTrack) или null, если кода нет нигде.
+// Товары этой закупки с треком получают «Приехал», в журнал 'scans' пишется запись — всё одной транзакцией.
 // Сканы идут в общей очереди: быстрая серия не теряет и не задваивает отметки.
 export function scanCode(pid, code, track) {
   return serial(async () => {
@@ -397,7 +406,7 @@ export function scanCode(pid, code, track) {
   });
 }
 
-// Ручная отметка: «приехал» ставит «На складе», «не приехал» возвращает статус, который был до отметки.
+// Ручная отметка: «приехал» ставит «Приехал», «не приехал» возвращает статус, который был до отметки.
 export const setArrived = (id, on) => commit('items', id, (it) => {
   if (on) return isArrived(it) ? null : { status: ARRIVED };
   return isArrived(it) ? { status: statusBeforeArrival(it, state.events) } : null;
