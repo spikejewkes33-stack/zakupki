@@ -48,6 +48,7 @@ function Result({ r, times }) {
     ${r.result === 'other' && html`<p class="result-name">Из закупки «${r.otherPids.map((id) => S.purchaseById(id)?.name || '?').join('», «')}»</p>`}
     <${ResultItems} items=${r.items} />
     <p class="mono ${r.result === 'unknown' ? 'big' : ''}">${r.rec.code}${when ? ` · отмечен ${timeRu(when)}` : ''}</p>
+    ${r.result === 'unknown' && html`<p class="small">Такого трека нет в закупке. Код сохранён во вкладке «Нет в списке», товар можно отметить там вручную.</p>`}
   </div>`;
 }
 
@@ -192,12 +193,23 @@ export function ScanScreen({ id }) {
   </section>`;
 }
 
-const TABS = [['arrived', 'Приехали'], ['waiting', 'Ожидаются'], ['missing', 'Нет в списке']];
+const TABS = [['all', 'Все по клиентам'], ['arrived', 'Приехали'], ['waiting', 'Ожидаются'], ['missing', 'Нет в списке']];
+
+// Все товары закупки по клиентам: у каждого видно, что приехало (✓) и чего ещё нет.
+function byClient(items) {
+  const groups = new Map();
+  for (const it of items) {
+    if (!groups.has(it.clientId)) groups.set(it.clientId, []);
+    groups.get(it.clientId).push(it);
+  }
+  return [...groups].map(([cid, list]) => ({ cid, name: S.clientName(cid), list: sortItems(list, 'order') }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+}
 
 // Списки закупки. Ручная отметка — кнопкой справа (в закрытой закупке только просмотр).
 export function ArrivalsScreen({ id, query }) {
   const p = S.purchaseById(id);
-  const [tab, setTab] = useState(query.get('tab') || 'waiting');
+  const [tab, setTab] = useState(query.get('tab') || 'all');
   const [q, setQ] = useState('');
   useEffect(() => {
     if (p) S.loadScans(id);
@@ -210,18 +222,20 @@ export function ArrivalsScreen({ id, query }) {
   const times = arrivalTimes(S.state.events);
   const find = (arr) => (q.trim() ? arr.filter((it) => matchItem(it, q, S.clientName(it.clientId))) : arr);
   const arrived = find(l.arrived).sort((a, b) => (times.get(b.id) || '').localeCompare(times.get(a.id) || ''));
-  const counts = { arrived: l.done, waiting: l.waiting.length + l.noTrack.length, missing: missing.length };
-  const row = (it, on) => html`<div class="arr-row" key=${it.id}>
-    <${ItemRow} item=${it} showClient=${true} />
+  const counts = { all: l.total, arrived: l.done, waiting: l.waiting.length + l.noTrack.length, missing: missing.length };
+  // on — кнопка ставит отметку (товар ещё не приехал), иначе снимает.
+  const row = (it, on, showClient = true) => html`<div class=${`arr-row ${on ? '' : 'ok'}`} key=${it.id}>
+    <${ItemRow} item=${it} showClient=${showClient} />
     <div class="arr-side">
-      ${!on && times.get(it.id) && html`<span class="muted small">${timeRu(times.get(it.id))}</span>`}
+      ${on ? html`<span class="muted small">ещё нет</span>` : times.get(it.id) && html`<span class="muted small">${timeRu(times.get(it.id))}</span>`}
       ${!ro && html`<button class="btn small" onClick=${async () => {
         if (!on && !confirm(`«${itemTitle(it)}» не приехал? Статус вернётся прежний.`)) return;
         await S.setArrived(it.id, on);
         toast(on ? 'Отмечен: приехал' : 'Отметка снята');
-      }}>${on ? '✓ Приехал' : 'Снять'}</button>`}
+      }}>${on ? 'Отметить' : 'Снять'}</button>`}
     </div>
   </div>`;
+  const groups = tab === 'all' ? byClient(find(S.itemsOf(id))) : [];
   return html`<${Header} title="Склад" back=${`/p/${id}`} />
   <main>
     <section class="card">
@@ -232,6 +246,14 @@ export function ArrivalsScreen({ id, query }) {
     </section>
     <div class="seg arr-tabs">${TABS.map(([k, label]) => html`<button class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${label} ${counts[k]}</button>`)}</div>
     ${tab !== 'missing' && html`<${Search} value=${q} onInput=${setQ} placeholder="Товар, трек, клиент" />`}
+    ${tab === 'all' && html`
+      ${groups.map((g) => {
+        const done = g.list.filter((it) => it.status >= 6).length;
+        return html`<h3 class="arr-client" key=${g.cid}>${g.name}
+          <span class=${done === g.list.length ? 'ok-text' : 'muted'}>приехало ${done} из ${g.list.length}</span></h3>
+          <div class="list">${g.list.map((it) => row(it, it.status < 6, false))}</div>`;
+      })}
+      ${!groups.length && html`<${Empty}>${q ? 'Ничего не найдено' : 'В закупке нет товаров'}</${Empty}>`}`}
     ${tab === 'arrived' && html`
       <div class="list">${arrived.map((it) => row(it, false))}</div>
       ${!arrived.length && html`<${Empty}>${q ? 'Ничего не найдено' : 'Пока ничего не приехало'}</${Empty}>`}`}

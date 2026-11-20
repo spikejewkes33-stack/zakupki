@@ -266,10 +266,15 @@ details summary { cursor: pointer; }
 .scan-progress .bar i { display: block; height: 100%; background: var(--ok); }
 .card .scan-progress + .btn { margin-top: 12px; }
 .arr-row { display: flex; align-items: center; border-bottom: 1px solid var(--line); }
+.arr-row.ok { box-shadow: inset 4px 0 var(--ok); }
 .arr-row .row { flex: 1; min-width: 0; border-bottom: 0; }
 .arr-side { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; margin-right: 10px; flex: none; }
 .other-text { color: #7a3db8; }
-.arr-tabs button { font-size: 13px; padding: 8px 4px; }
+.arr-tabs { grid-template-columns: repeat(2, 1fr); }
+.arr-tabs button { font-size: 14px; padding: 8px 4px; }
+.arr-client { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 18px 0 6px; }
+.arr-client span { font-size: 13px; font-weight: 500; }
+.ok-text { color: var(--ok); }
 @media (prefers-color-scheme: dark) { .other-text { color: #c4a1ef; } }
 
 /* Сканер (из «Посылок»): цвета результата постоянные, не зависят от темы */
